@@ -815,11 +815,56 @@ different networks and measured the implementations rather than the mechanism.
 −0.010 on the oldest one.** Tightening `retention_tolerance` to 0.02 moves it to
 +0.102 and −0.002, so the trade is a dial rather than a fixed price.
 
-One negative result worth recording: individual runs do show an old skill
-*improving* while later skills are learned, but averaged over seeds the change
-stays slightly negative. Backward transfer was not achieved on this benchmark —
-only bounded forgetting. A frozen trunk pins that number to zero by
-construction and can never produce either outcome.
+### Why "learning more makes it better" was missing
+
+An earlier version of this section recorded that backward transfer — an old
+skill *improving* while later skills are learned — could not be achieved, only
+bounded forgetting. That was wrong, and the correction matters more than the
+original claim.
+
+It was not the architecture. The four-skill curriculum used above is built from
+tasks with little shared structure, and no learner can transfer between tasks
+that share nothing. Rerun with tasks drawn from a shared low-rank basis — every
+task a different combination of the same few underlying factors, which is the
+situation any real domain is in — and the same trunk, capacity, and learning
+rule give the opposite result.
+
+Skill 1, never retrained, as later skills arrive (3 seeds, fixed capacity):
+
+| tasks learned | 1 | 2 | 4 | 8 | 12 | net |
+|---|---:|---:|---:|---:|---:|---:|
+| related | 0.827 | 0.872 | 0.870 | 0.889 | 0.889 | **+0.062** |
+| unrelated | 0.858 | 0.887 | 0.872 | 0.846 | 0.839 | −0.020 |
+
+And average accuracy across *every* task learned so far:
+
+| tasks | 2 | 4 | 8 | 12 |
+|---|---:|---:|---:|---:|
+| related | 0.839 | 0.836 | 0.866 | **0.882** |
+| unrelated | 0.818 | 0.820 | 0.786 | 0.768 |
+
+Learning more makes it better at everything, including what it already knew.
+Three further findings from the same sweep:
+
+* **Capacity sets the level, task structure sets the slope.** Widening the
+  trunk moves average accuracy 0.779 → 0.877 on the same eight tasks, but does
+  not make the curve rise with more tasks. Shared structure does.
+* **Sequential arrival is not the bottleneck.** Training every task jointly —
+  the "one big model" idealisation — beats sequential arrival by 0.005 at small
+  capacity and 0.002 at large. Replay already recovers nearly all of it.
+* **Isolation is the thing that prevents it.** Frozen representations,
+  per-skill experts and protected promotion all work by stopping tasks from
+  sharing parameters, and parameter sharing is the entire mechanism.
+
+The generalisation: a system gets broadly better from experience when its
+experience shares structure and its parameters are shared enough to find it.
+Large pretrained models get both for free — natural data is nothing but shared
+structure, and one network absorbs all of it. Neither is a property that more
+subsystems can supply.
+
+```
+python3 examples/does_more_help.py
+```
 
 `SharedPlasticity` exposes the same `learn(name, training, validation)`
 interface as `ProtectedPlasticity`, so it drops into existing call sites.

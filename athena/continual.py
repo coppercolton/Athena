@@ -484,6 +484,36 @@ class SharedPlasticity:
         return self.learner.predict(name, inputs)
 
 
+def related_tasks(count: int, seed: int, *, dim: int = 8, rank: int = 3) -> list[np.ndarray]:
+    """Tasks drawn from a shared low-rank basis.
+
+    Every task is a different combination of the same few underlying factors,
+    so one good representation serves all of them. This is the situation any
+    real domain is in, and it is the condition under which learning more makes
+    a system better at what it already knew.
+    """
+    rng = np.random.default_rng(seed)
+    basis = [rng.normal(0.0, 1.0, (dim, dim)) for _ in range(rank)]
+    return [
+        sum(c * b for c, b in zip(rng.normal(0.0, 1.0, rank), basis))
+        for _ in range(count)
+    ]
+
+
+def unrelated_tasks(count: int, seed: int, *, dim: int = 8) -> list[np.ndarray]:
+    """Tasks with no shared structure -- the control, where nothing can transfer."""
+    rng = np.random.default_rng(seed)
+    return [rng.normal(0.0, 1.0, (dim, dim)) for _ in range(count)]
+
+
+def task_cases(matrix: np.ndarray, count: int, seed: int) -> list[Experience]:
+    """Label points by the sign of a quadratic form."""
+    rng = np.random.default_rng(seed)
+    x = rng.uniform(-1.0, 1.0, (count, matrix.shape[0]))
+    y = ((x @ matrix * x).sum(axis=1) > 0).astype(int)
+    return [Experience(tuple(row), int(t)) for row, t in zip(x, y)]
+
+
 def stream(learner: ContinualLearner, skill: str, experiences: Iterable[Experience]) -> int:
     """Feed an unbounded stream of experience into a live learner."""
     count = 0

@@ -20,7 +20,10 @@ from athena.continual import (  # noqa: E402
     ContinualLearner,
     Experience,
     SharedPlasticity,
+    related_tasks,
     stream,
+    task_cases,
+    unrelated_tasks,
 )
 
 DIM = 6
@@ -166,6 +169,53 @@ def test_shared_plasticity_matches_the_registry_interface():
     assert len(registry) == 1
     assert registry.predict(BASE[0], (0.5,) * DIM) in (0, 1)
     assert 0.0 <= registry.evaluate(BASE[0], cases(BASE[1], 64, 3)) <= 1.0
+
+
+def _deployment(family, n_tasks: int, seed: int):
+    matrices = family(n_tasks, 2000 + seed, dim=8)
+    brain = ContinualLearner(
+        ContinualConfig(input_dim=8, hidden=(48, 32), seed=seed, replay_capacity=512)
+    )
+    probe = task_cases(matrices[0], 512, 7000 + seed)
+    curve = []
+    for index, matrix in enumerate(matrices):
+        brain.teach(
+            f"t{index}",
+            task_cases(matrix, 512, seed * 100 + index),
+            task_cases(matrix, 256, seed * 100 + 60 + index),
+            steps=400,
+        )
+        curve.append(brain.accuracy("t0", probe))
+    return curve
+
+
+def test_related_tasks_produce_backward_transfer():
+    """An old skill must get BETTER as related skills arrive, without retraining.
+
+    This is the property the whole design is for, and it is the one an earlier
+    version of this suite reported as unreachable. It was unreachable on a
+    curriculum of unrelated tasks, which is a fact about the tasks rather than
+    about the learner -- there was nothing there to transfer.
+    """
+    deltas = [
+        (lambda c: c[-1] - c[0])(_deployment(related_tasks, 10, seed)) for seed in range(3)
+    ]
+    mean = float(np.mean(deltas))
+    assert mean > 0.01, f"no backward transfer on related tasks: {mean:+.4f}"
+
+
+def test_unrelated_tasks_interfere_instead():
+    """The control. Without shared structure the same learner loses ground."""
+    related = float(np.mean([
+        (lambda c: c[-1] - c[0])(_deployment(related_tasks, 10, seed)) for seed in range(3)
+    ]))
+    unrelated = float(np.mean([
+        (lambda c: c[-1] - c[0])(_deployment(unrelated_tasks, 10, seed)) for seed in range(3)
+    ]))
+    assert related > unrelated + 0.02, (
+        f"task structure made no difference: related {related:+.4f} vs "
+        f"unrelated {unrelated:+.4f}"
+    )
 
 
 if __name__ == "__main__":
