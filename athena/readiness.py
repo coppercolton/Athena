@@ -99,11 +99,11 @@ _REQUIRED_GATES: tuple[tuple[str, str], ...] = (
 _CURRENT_EVIDENCE: dict[str, tuple[EvidenceLevel, str]] = {
     "continual_learning": (
         EvidenceLevel.NARROW,
-        "online numeric learning, replay, checkpoints, and protected neural updates",
+        "online learning, replay, checkpoints, protected neural updates, and persistent verified procedures",
     ),
     "novel_problem_learning": (
         EvidenceLevel.NARROW,
-        "active induction and unfamiliar-tool learning in constrained generated worlds",
+        "active induction, unfamiliar-tool learning, and model-guided disposable repository tasks",
     ),
     "representation_transfer": (
         EvidenceLevel.NARROW,
@@ -115,7 +115,7 @@ _CURRENT_EVIDENCE: dict[str, tuple[EvidenceLevel, str]] = {
     ),
     "autonomous_experimentation": (
         EvidenceLevel.NARROW,
-        "bounded experiments exist only inside deterministic sandboxes",
+        "bounded experiments and repository checks exist behind local permission policies",
     ),
     "long_horizon_planning": (
         EvidenceLevel.NOT_DEMONSTRATED,
@@ -135,7 +135,7 @@ _CURRENT_EVIDENCE: dict[str, tuple[EvidenceLevel, str]] = {
     ),
     "real_world_reliability": (
         EvidenceLevel.NOT_DEMONSTRATED,
-        "real external writes remain disabled and open-world safety is unevaluated",
+        "review-only repository patches exist, but hostile-code containment and open-world safety are unevaluated",
     ),
 }
 

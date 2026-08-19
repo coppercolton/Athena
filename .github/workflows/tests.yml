@@ -22,5 +22,6 @@ jobs:
       - run: python tests/test_tool_learning.py
       - run: python tests/test_plasticity.py
       - run: python tests/test_representations.py
+      - run: python tests/test_apprentice.py
       - run: python tests/test_readiness.py
       - run: python tests/test_playground.py
