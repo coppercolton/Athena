@@ -12,7 +12,9 @@ one. So these tests check against baselines rather than against zero.
 from __future__ import annotations
 
 import os
+from pathlib import Path
 import sys
+import tempfile
 
 import numpy as np
 
@@ -21,6 +23,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from athena import (  # noqa: E402
     Athena,
     Config,
+    OnlineRLS,
     Regime,
     SwitchingWorld,
     linear_mse,
@@ -87,6 +90,72 @@ def test_deterministic_given_seed():
     assert np.allclose(runs[0], runs[1]), "same seed gave different results"
 
 
+def test_checkpoint_roundtrip_resumes_exactly():
+    """A forever learner must survive process restarts without changing course."""
+    world = _stationary(3)
+    model = Athena(Config(sizes=[3, 12, 6], seed=7))
+    model.run(world.stream(250))
+
+    with tempfile.TemporaryDirectory() as directory:
+        path = Path(directory) / "athena.npz"
+        assert model.save(path) == path
+        restored = Athena.load(path)
+
+    assert restored.step_count == model.step_count
+    assert np.allclose(restored.context, model.context)
+    assert np.allclose(restored.predict(), model.predict())
+
+    observation = world.at(250)
+    original_report = model.observe(observation)
+    restored_report = restored.observe(observation)
+    assert np.allclose(restored_report.prediction, original_report.prediction)
+    assert np.isclose(restored_report.nll, original_report.nll)
+    assert np.allclose(restored_report.context, original_report.context)
+    for original, loaded in zip(model.M, restored.M):
+        assert np.allclose(original, loaded)
+
+
+def test_frozen_evaluation_preserves_long_term_learning_state():
+    """learn=False may advance beliefs, but must not train in the holdout."""
+    world = _stationary(3)
+    model = Athena(Config(sizes=[3, 12, 6], seed=4))
+    model.run(world.stream(250))
+
+    weights = [matrix.copy() for matrix in model.M]
+    generators = [None if matrix is None else matrix.copy() for matrix in model.W]
+    variances = [precision.var.copy() for precision in model.pi_spatial]
+    forecast_var = model.pi_forecast.var.copy()
+    hierarchy_forecast_var = model.pi_hierarchy_forecast.var.copy()
+    dynamics_forecast_var = model.pi_dynamics_forecast.var.copy()
+    dynamics_theta = [head.theta.copy() for head in model.dynamics_bank]
+    dynamics_covariance = [head.covariance.copy() for head in model.dynamics_bank]
+    gate_transition = model.gate.A.copy()
+    gate_usage = model.gate.usage.copy()
+    evidence = model.evidence
+    volatility = (model.volatility.fast, model.volatility.slow, model.volatility._seen)
+
+    for t in range(250, 300):
+        model.observe(world.at(t), learn=False)
+
+    for before, after in zip(weights, model.M):
+        assert np.array_equal(before, after)
+    for before, after in zip(generators[1:], model.W[1:]):
+        assert np.array_equal(before, after)
+    for before, precision in zip(variances, model.pi_spatial):
+        assert np.array_equal(before, precision.var)
+    assert np.array_equal(forecast_var, model.pi_forecast.var)
+    assert np.array_equal(hierarchy_forecast_var, model.pi_hierarchy_forecast.var)
+    assert np.array_equal(dynamics_forecast_var, model.pi_dynamics_forecast.var)
+    for before, head in zip(dynamics_theta, model.dynamics_bank):
+        assert np.array_equal(before, head.theta)
+    for before, head in zip(dynamics_covariance, model.dynamics_bank):
+        assert np.array_equal(before, head.covariance)
+    assert np.array_equal(gate_transition, model.gate.A)
+    assert np.array_equal(gate_usage, model.gate.usage)
+    assert model.evidence == evidence
+    assert (model.volatility.fast, model.volatility.slow, model.volatility._seen) == volatility
+
+
 # ----------------------------------------------------------------------
 # the actual claim: it gets better by predicting
 # ----------------------------------------------------------------------
@@ -139,6 +208,14 @@ def test_multi_step_prediction_degrades_gracefully():
     assert errors[0] <= errors[-1] + 1e-6, "one-step prediction was worse than five-step"
 
 
+def test_online_rls_exposes_easy_autoregressive_streams():
+    """The benchmark suite needs a baseline that can actually solve a sinusoid."""
+    world = _stationary(3)
+    baseline = OnlineRLS(n_channels=3, order=2)
+    mse = np.asarray([report.mse for report in baseline.run(world.stream(500))])
+    assert mse[-100:].mean() < 1e-7, f"RLS failed to learn an AR(2) stream: {mse[-100:].mean()}"
+
+
 # ----------------------------------------------------------------------
 # precision and volatility
 # ----------------------------------------------------------------------
@@ -174,6 +251,31 @@ def test_context_belief_is_a_distribution():
         assert report.context.shape == (4,)
         assert abs(float(report.context.sum()) - 1.0) < 1e-9
         assert np.all(report.context >= 0.0)
+
+
+def test_context_bank_remembers_returning_regimes():
+    """The expert bank must beat one overwrite-prone model after regimes return."""
+    steps, dwell = 3000, 250
+    world = shifting_world(n_channels=2, n_regimes=3, dwell=dwell, seed=3)
+    observations = [world.at(t) for t in range(steps)]
+    single = Athena(Config(sizes=[2, 8, 4], seed=1, experts=1))
+    banked = Athena(Config(sizes=[2, 8, 4], seed=1, experts=5))
+    single_mse = np.asarray([report.mse for report in single.run(observations)])
+    banked_mse = np.asarray([report.mse for report in banked.run(observations)])
+
+    single_profile = np.asarray(
+        [single_mse[start : start + dwell] for start in range(0, steps, dwell)]
+    )[-4:].mean(0)
+    banked_profile = np.asarray(
+        [banked_mse[start : start + dwell] for start in range(0, steps, dwell)]
+    )[-4:].mean(0)
+    single_return = single_profile[100:200].mean()
+    banked_return = banked_profile[100:200].mean()
+    assert banked.gate.allocations, "context gate never recruited a specialist"
+    assert banked_return < 0.6 * single_return, (
+        f"bank failed to remember recurring regimes: {single_return:.3e} vs "
+        f"{banked_return:.3e}"
+    )
 
 
 def test_single_expert_model_still_runs():

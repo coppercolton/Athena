@@ -1,256 +1,896 @@
 # Athena
 
-An AI that learns the way the idea describes: it predicts what it is about to
-see, looks, and corrects itself — forever, with no training phase.
+Athena is an experimental architecture for intelligence that keeps learning
+after deployment. It combines seven complementary systems:
 
+- a numeric continual world model that predicts the next observation and
+  updates online; and
+- a provider-neutral agent layer that gives a stable pretrained foundation
+  model episodic memory, evidence-gated facts, and behavior learned from the
+  consequences of its own decisions; and
+- a verified procedural skill layer that identifies knowledge gaps, learns an
+  executable rule through instruction or active experimentation, tests it on
+  held-out cases, and retains it without rewriting earlier skills; and
+- a permissioned tool-learning agent that explores unfamiliar operations,
+  predicts results before acting, verifies real state, and compiles successful
+  traces into reusable workflows that bind to differently named tools; and
+- a protected neural-plasticity layer that trains expandable neural experts from
+  outcome-labelled experience and promotes new weights only after held-out and
+  regression evaluation; and
+- a grounded representation layer that compresses raw sensor grids into a
+  learned latent state and reuses that state across protected reasoning heads;
+  and
+- a persistent apprenticeship runtime that accepts repository tasks, predicts
+  before each action, works only in disposable clones, verifies outcomes,
+  retains experience in a hash-chained ledger, and promotes repeated successful
+  traces into reusable procedures.
+
+Learning is explicit rather than hidden behind chat history. Predictions are
+recorded before outcomes arrive, experience is the data, and neural candidate
+training, replay, verification, promotion, and rollback are separately visible.
+The hosted foundation remains stable while Athena's smaller protected neural
+experts can change after deployment.
+
+```text
+predict -> observe -> measure surprise -> infer context -> update -> predict
+   ^                                                               |
+   +---------------------------------------------------------------+
 ```
-        ┌─────────────┐   prediction   ┌──────────────┐
-        │  the model  │ ─────────────► │  what is     │
-        │  (beliefs)  │ ◄───────────── │  actually    │
-        └─────────────┘  error signal  │  there       │
-              ▲                        └──────────────┘
-              └── every error, immediately, adjusts the beliefs
-                  that produced it, and the weights behind them
+
+The long-term goal is an intelligence that starts with broad pretrained
+knowledge and develops through its own lifetime of experience. That does **not**
+mean error must improve monotonically or that every environment is predictable.
+It means its learning machinery remains plastic, bounded, inspectable,
+testable, and resumable while observations and consequences keep arriving.
+
+## Try Athena — v0.9
+
+V0.9 is Athena's first persistent, continuously running agent loop for a real
+domain: local software repositories. Here, “live” means the worker can stay
+running, recover expired task leases after restart, accumulate verified
+experience, and use retained procedures on later tasks. It does **not** mean
+sentience, unrestricted autonomy, or permission to rewrite its own safeguards.
+
+```mermaid
+flowchart TD
+    Q["Persistent task queue"] --> C["Disposable repository clone"]
+    C --> P["Predict next action"]
+    P --> T["Policy-approved tool"]
+    T --> O["Record observation"]
+    O --> V{"Independent checks pass?"}
+    V -- No --> L["Retain failure lesson"]
+    V -- Yes --> A["Export reviewable patch"]
+    A --> S["Shadow procedure"]
+    S --> G{"Repeated independent success?"}
+    G -- Yes --> R["Promote for reuse"]
+    G -- No --> Q
+    L --> Q
+    R --> Q
 ```
 
-Every timestep, Athena produces an expectation of the next observation *before*
-that observation arrives. When it arrives, the difference between expectation
-and reality is the only learning signal the system uses. There is no dataset,
-no training run, no separate inference mode. It gets better for exactly as long
-as you leave it running.
+The foundation model proposes actions, but it cannot execute arbitrary shell
+commands. The local runtime exposes only file listing, reading, literal search,
+single-occurrence replacement, new-file creation, and exact verifier commands
+chosen by the user when the task is submitted. Paths must remain inside a
+disposable clone. The original repository is never edited; a successful task
+produces a patch in the artifact directory.
 
-## Where the idea comes from
+### Run the live apprentice
 
-This is a real theory of how brains work, not a metaphor. It is called
-**predictive processing** (or predictive coding), and the load-bearing papers
-are Rao & Ballard (1999), which introduced hierarchical predictive coding in
-visual cortex, and Karl Friston's free-energy work, which recast perception,
-learning and action as one quantity being minimised. Andy Clark's *Surfing
-Uncertainty* is the readable book-length version.
+Install the checkout and initialize persistent state:
 
-The idea has been picked up in machine learning too — world models, JEPA, and
-essentially every self-supervised next-step predictor are relatives. So the
-intuition is a good one, and it is not an unexplored one. What this repository
-is: a small, complete, honest implementation you can read in an afternoon and
-run in a terminal, with the measurements to say what it does and does not do.
+```bash
+python3 -m pip install -e .
+athena-apprentice init
+```
 
-## The loop
+Queue a task with an observable goal and one or more exact checks:
+
+```bash
+athena-apprentice submit \
+  --repo /path/to/repository \
+  --kind fix-parser-edge-case \
+  --goal "Handle an empty token list without changing valid parses." \
+  --check "python -m pytest tests/test_parser.py"
+```
+
+The source must be a clean git working tree. This prevents uncommitted work from
+being silently omitted when Athena creates its disposable clone.
+
+Connect the OpenRouter reasoning backend and process one task:
+
+```bash
+export OPENROUTER_API_KEY="your-key"
+export OPENROUTER_MODEL="nvidia/nemotron-3-ultra-550b-a55b:free"
+athena-apprentice run
+```
+
+Or leave the bounded worker alive so it processes newly queued tasks:
+
+```bash
+athena-apprentice daemon --poll 2
+athena-apprentice status
+```
+
+Status reports the verified success rate, cumulative foundation-reasoner steps,
+procedure reuses, and mean prediction error in addition to queue, procedure,
+heartbeat, and ledger health. Those measurements distinguish accumulated state
+from actual improvement: a useful retained skill should preserve verification
+while reducing new reasoning work on later tasks.
+
+Failed attempts retain their verifier evidence as lessons. Requeue one unchanged
+with `athena-apprentice retry TASK_ID`, or teach it and retry with
+`athena-apprentice teach TASK_ID --instruction "..."`. The next model turn sees
+both the explicit human instruction and recent failure summaries for that task
+kind.
+
+The browser never receives the provider key, and neither the key nor raw
+provider requests/responses are written to the experience database. Validated
+tool decisions and their observations are retained as experience. Run an
+entirely offline, deterministic three-experience demonstration with:
+
+```bash
+python3 examples/live_apprentice.py
+```
+
+When OpenRouter is enabled, the goal, selected file contents, check output,
+prior failure lessons, and current action trace may be sent to that provider so
+it can choose the next tool. Do not submit confidential repositories unless the
+configured provider and its data policy are appropriate for them.
+
+The first two successful experiences remain reasoner-guided and independently
+verified. Only then is the identical edit procedure promoted; the third task
+reuses it with zero foundation calls. If that procedure later fails, Athena
+rejects it, starts again from a fresh clone, and returns control to the reasoner.
+
+### The safety boundary
+
+V0.9 is intentionally narrower than a general computer-use agent:
+
+- the source repository is read-only from Athena's perspective;
+- changes occur in exact, internally created disposable directories;
+- parent paths and symlinks that escape the clone are denied;
+- model-selected operations are checked against strict local schemas;
+- verifier commands use argv execution without a shell and a program allowlist;
+- every prediction and observation is appended to a tamper-evident hash chain;
+- patches are outputs for human review, not silently applied changes; and
+- procedures need repeated independent successes and are rolled back on failure.
+
+This is a containment boundary, not a hardened hostile-code sandbox. A verifier
+such as `python -m pytest` executes repository code with the worker's operating
+system privileges. Use trusted repositories and run the worker inside a VM or
+container before evaluating untrusted code. Network access is not granted as an
+Athena tool, but v0.9 does not enforce an operating-system network namespace.
+
+## Interactive learning playground
+
+The existing playground exposes five other kinds of post-deployment learning in
+one local browser interface:
+
+- **Representation learning:** give Athena raw two-channel 8×8 sensor grids.
+  It learns a masked-reconstruction bottleneck, tests the latent state on unseen
+  observations, grounds reasoning operators without object coordinates, compares
+  them with an untrained-encoder control, and measures transfer under noisier,
+  dimmer sensors.
+- **Neural reasoning improvement:** train a fresh neural expert from labelled
+  experiences. Athena measures accuracy before learning, changes real weights,
+  evaluates unseen cases, replays protected abilities, and either promotes or
+  rolls back the candidate before retained intelligence changes.
+- **Tool-workflow learning:** send Athena into an opaque virtual workspace. It
+  inspects manuals, uses only policy-approved tools, snapshots reversible writes,
+  verifies the goal, and tests the compiled workflow in worlds with new tool
+  names and task values.
+- **Capability learning:** give Athena an unrevealed black-box sequence world.
+  It reports what it does not know, chooses experiments, induces a procedure,
+  verifies it independently, stores it, and runs it on inputs not seen during
+  discovery.
+- **Experience learning:** give the agent a real-world situation. It proposes an
+  action before the outcome exists, then updates contextual strategy evidence
+  from the measured result.
+
+The experience path is explicit rather than hidden behind a chat box:
+
+1. Give Athena a problem and a context.
+2. Athena retrieves related experiences and established knowledge.
+3. A foundation backend proposes candidate actions.
+4. Athena predicts success and chooses before seeing the outcome.
+5. Report whether the action worked and what happened.
+6. Watch its memories, contextual strategies, and confidence change.
+
+Launch the offline learning demo from the repository:
+
+```bash
+python3 -m athena.playground
+```
+
+Then open [http://127.0.0.1:8765](http://127.0.0.1:8765). The installed package
+also provides:
+
+```bash
+athena-playground
+```
+
+The demo backend, tool workspace, and symbolic skill world are deterministic
+rather than disguised language models. They let you test Athena's
+post-deployment learning immediately without credentials or network access.
+
+### Connect broad foundation intelligence
+
+Set an API key in the server environment to let the same agent use a hosted
+foundation model. The browser never receives or stores the key.
+
+For the current free OpenRouter test model:
+
+```bash
+export OPENROUTER_API_KEY="your-key"
+export OPENROUTER_MODEL="nvidia/nemotron-3-ultra-550b-a55b:free"
+python3 -m athena.playground --foundation openrouter
+```
+
+The OpenRouter adapter uses Chat Completions function tools for candidate and
+unfamiliar-tool decisions. The requested free Nemotron endpoint supports tool
+calling but not enforced `response_format`, so Athena validates the tool name,
+exact argument set, argument types, predictive fields, and confidence again
+locally before its permission policy can execute anything. `--foundation auto`
+selects OpenRouter when `OPENROUTER_API_KEY` is present. You can change models
+with `OPENROUTER_MODEL` or `--model`. See OpenRouter's official
+[model page](https://openrouter.ai/nvidia/nemotron-3-ultra-550b-a55b%3Afree),
+[API reference](https://openrouter.ai/docs/api_reference/overview), and
+[tool-calling guide](https://openrouter.ai/docs/guides/features/tool-calling).
+
+Do not send secrets, personal data, or confidential material to the free
+endpoint. Its model page says free-endpoint use is logged for security and
+NVIDIA product improvement.
+
+For OpenAI:
+
+```bash
+export OPENAI_API_KEY="your-key"
+export OPENAI_MODEL="gpt-5.6"
+python3 -m athena.playground --foundation openai
+```
+
+The OpenAI adapter uses the Responses API with strict Structured Outputs for
+candidate actions and strict function tools for unfamiliar-tool decisions. The
+permission policy still runs locally after either provider selects a call. You
+can select another compatible OpenAI model through `OPENAI_MODEL` or `--model`.
+See the official [Structured Outputs](https://developers.openai.com/api/docs/guides/structured-outputs)
+and [function calling](https://developers.openai.com/api/docs/guides/function-calling)
+documentation.
+
+Experience state is checkpointed after every prediction, outcome, and factual
+update at `~/.athena/playground.npz` by default. Symbolic skills are stored in
+`~/.athena/playground.skills.json`, and verified tool workflows in
+`~/.athena/playground.tool-skills.json`. Consolidated neural experts, protected
+replay cases, and their actual parameters are stored in
+`~/.athena/playground.plasticity.npz`. Learned sensor representations, grounded
+operators, replay, probes, and exact parameters are stored in
+`~/.athena/playground.representations.npz`. Use `--state PATH` for another
+identity or experiment. Because live requests include the current task and retrieved
+learning context, do not place sensitive information in the agent unless it is
+appropriate to send to the configured model provider.
+
+### What the playground can and cannot do
+
+It can learn a compressed latent state from raw pixels, reuse it across multiple
+reasoning heads, change small neural networks after deployment, recruit isolated
+capacity, transfer learned relations to unseen values, replay protected cases,
+reject regressive updates, learn permissioned workflows across differently named
+virtual tools, acquire procedures in its constrained symbolic language, reason
+through a connected foundation model, and resume every learning subsystem after
+restart.
+
+The playground deliberately does **not** execute an arbitrary shell or connect
+the demo to external accounts. Its tool tab still executes only inside
+`OpaqueKVWorld`. The separate v0.9 apprentice is the first real repository
+adapter and preserves the narrower boundary described above. External account
+writes remain denied.
+
+## What v0.9 established
+
+V0.9 turns Athena's earlier laboratory contracts into a restartable repository
+worker. The durable unit of learning is not an unverified chat transcript: it
+is a prediction/action/observation trace whose final patch passed user-supplied
+checks in an isolated clone. Immediate events enter episodic storage; repeated
+identical successful traces become shadow procedures; only independent task
+successes promote them into fast procedural reuse.
+
+The included behavioral tests cover source isolation, patch export, restart and
+lease recovery, action-before-observation ordering, hash-chain tamper detection,
+command and path denial, OpenRouter schema validation, multi-experience
+promotion, zero-reasoner reuse, and rollback with model-guided recovery. This is
+evidence for a bounded continual software apprentice—not general autonomous
+software engineering or AGI.
+
+## What v0.8 established
+
+V0.8 replaces the four hand-authored numeric features used by v0.7's newest
+learning demonstration with 128 raw pixel channels. A masked nonlinear
+autoencoder learns a 16-value latent representation from unlabelled observation
+reconstruction. Modular reasoning heads then receive only that latent state—not
+the hidden object coordinates used to generate the benchmark.
+
+The representation lifecycle is:
+
+1. receive unlabelled raw sensor observations;
+2. mask pixels and train candidate encoder/decoder weights to reconstruct them;
+3. verify reconstruction on observations unavailable to training;
+4. reject collapsed latent states using a variance gate;
+5. ground separately addressable reasoning heads in the retained latent state;
+6. compare each head with the identical initialization on an untrained encoder;
+7. test transfer under increased noise and reduced brightness;
+8. keep the shared encoder frozen while adding heads; and
+9. when refining the encoder, retrain candidate heads from replay and promote the
+   complete candidate only if every protected operator still passes.
+
+### Learned-representation benchmark
+
+Across ten independent seeds, Athena learns one latent visual state and two
+relations: horizontal ordering and vertical ordering. Training, held-out
+verification, sensor-shift transfer, and the untrained-representation control
+use separate observations.
+
+| measure | result |
+|---|---:|
+| sensor representations promoted | **10 / 10** |
+| reasoning operators promoted | **20 / 20** |
+| noisier, dimmer sensor transfers | **20 / 20** |
+| mean shifted-sensor accuracy | **92.510%** |
+| learned encoder beat identical untrained encoder | **20 / 20** |
+| mean held-out representation advantage | **+7.949 points** |
+| encoder unchanged while adding heads | **10 / 10** |
+| unverifiable representation updates rolled back | **10 / 10** |
+
+Run the demonstration and benchmark with:
+
+```bash
+python3 examples/learned_representations.py
+python3 examples/representation_benchmark.py --seeds 10
+```
+
+This is evidence that Athena can learn and reuse a small sensory representation;
+it is not evidence of general vision or general intelligence. The sensor world
+is synthetic, the two relations are binary, and operator labels are supplied.
+Natural language, real images, causal action, temporal representation learning,
+and open-ended task discovery remain future gates.
+
+### AGI readiness: fail closed
+
+Athena is **not close to demonstrated AGI**. The repository now encodes that
+conclusion as a mandatory ten-gate audit instead of a subjective percentage.
+Narrow laboratory evidence never counts as a broad pass, and missing evidence
+is always a blocker. The current audit records four narrow laboratory results,
+six capabilities not demonstrated, and zero broad passes.
+
+```bash
+python3 examples/agi_readiness.py
+```
+
+The missing gates include broad cross-domain generality, long-horizon planning,
+multimodal grounding, experience-driven improvement of general reasoning,
+retention at large scale, and open-world reliability and safety.
+
+## What v0.7 established
+
+V0.7 is Athena's first post-deployment learning path that changes neural
+parameters. A candidate two-layer network learns a binary relational operator
+from outcome-labelled experiences. Its weights train in isolation and cannot
+replace a retained expert until an independent set of unseen cases passes. When
+an existing expert is updated, protected replay must also pass. Failed
+candidates are discarded, leaving the retained parameter checksum unchanged.
+
+The lifecycle is:
+
+1. recruit a deterministic, separately addressable neural expert;
+2. measure its pre-learning accuracy on data unavailable to training;
+3. train candidate weights on new experiences plus protected replay;
+4. measure the actual parameter distance and new checksum;
+5. test generalization on held-out cases;
+6. test older protected cases for regression;
+7. promote a new version only if both gates pass; otherwise roll back;
+8. checkpoint the exact parameters and replay set; and
+9. evaluate transfer on a new seed and different input magnitude.
+
+New operators receive new experts, so acquiring a nonlinear relation does not
+mutate the weights of an earlier aggregate-comparison operator. Compatible new
+experience can update an existing expert and advance its version. Contradictory
+experience is allowed to train a candidate, but the candidate is rejected before
+it reaches the retained registry if it fails new-task or regression evaluation.
+
+### Neural-plasticity benchmark
+
+The benchmark learns two operators per seed: an aggregate comparison and a
+nonlinear same-side relation. Training, held-out verification, and transfer use
+independent random seeds; transfer also changes input magnitude. One candidate
+correctly remained unpromoted because it missed the verification threshold.
+
+| measure | result |
+|---|---:|
+| neural operators promoted | **39 / 40** |
+| unseen-distribution transfers | **39 / 40** |
+| mean transfer accuracy among promoted experts | **99.730%** |
+| first experts unchanged after new module recruitment | **20 / 20** |
+| contradictory updates safely rolled back | **20 / 20** |
+
+Run the transparent demonstration and multi-seed benchmark with:
+
+```bash
+python3 examples/neural_plasticity.py
+python3 examples/neural_plasticity_benchmark.py
+```
+
+This is genuine neural adaptation, but the claim is deliberately narrow. The
+inputs are four human-defined numeric features, the learning signal is supplied,
+and each expert predicts one binary relation. V0.7 does not fine-tune Nemotron or
+OpenAI weights, discover its own open-ended representation space, or establish
+general intelligence. It establishes a protected plastic substrate on which
+broader learned representations and reasoning operators can be tested.
+
+## What v0.6 established
+
+V0.6 turns a successful experience into a reusable tool procedure instead of
+only an episode or action score. In each deployment, record-store operations are
+assigned opaque names. Athena must inspect manuals to identify semantic
+capabilities, predict each call's result, and accomplish a structured goal.
+
+The lifecycle is:
+
+1. state the knowledge gap: tool names and semantics are unknown;
+2. inspect tool manuals to learn capability bindings;
+3. snapshot before every reversible write;
+4. execute one permission-checked call at a time;
+5. compare predicted success with the observed result;
+6. let the environment independently verify final state;
+7. compile raw calls into parameterized semantic steps;
+8. require success in two held-out worlds before consolidation; and
+9. bind the retained procedure to differently named tools after restart.
+
+A stored workflow refers to capabilities such as `write_value` and
+`read_value`, not deployment-specific tool names such as `gaia` or `iris`.
+Arguments learned from the first task become placeholders such as `$goal.key`
+and `$goal.value`. That is what lets the procedure transfer instead of replaying
+the training calls.
+
+### Permission and verification boundary
+
+- Registered tools declare `read`, `reversible_write`, or `external_write`.
+- The default policy permits only reads and reversible writes.
+- A reasoner cannot create a callable tool by naming one.
+- Every reversible write receives a pre-call snapshot.
+- A failed write is rolled back before another decision.
+- Model-selected `finish_task` never determines success; the environment does.
+- Skills with fewer than two independent validation worlds remain provisional.
+
+The OpenAI adapter presents each available operation as a strict function tool,
+disables parallel tool calls, and requests one action at a time. The API key
+remains server-side and is excluded from prompts and checkpoints.
+
+### Procedural multi-world benchmark
+
+The benchmark covers store, update, and delete tasks across 30 random seeds.
+Every training, validation, and transfer world independently renames all four
+operations. Transfer tasks also use unseen keys and values.
+
+| measure | result |
+|---|---:|
+| training worlds solved | **90 / 90** |
+| held-out validation worlds | **180 / 180** |
+| workflows consolidated | **90 / 90** |
+| renamed-world transfers | **90 / 90** |
+| mean acquisition decisions | **6.44** |
+| new foundation decisions during retained transfer | **0** |
+
+Run the transparent mission and full benchmark with:
+
+```bash
+python3 examples/tool_learning_agent.py
+python3 examples/tool_agent_benchmark.py
+```
+
+## What v0.5 established
+
+V0.5 distinguishes a durable capability from an episode or a success score. A
+procedural `Skill` contains an executable program, acquisition source, version,
+confidence, protected verification cases, and optional component skills.
+
+The first learning environment is deliberately narrow: transformations over
+token sequences inside an inspectable 11-primitive DSL. Athena begins with 78
+canonical one- and two-step hypotheses. It selects the probe with the greatest
+expected information gain, commits to the observation, eliminates contradicted
+hypotheses, and repeats until one program remains. The candidate cannot enter
+the registry until it passes inputs withheld from discovery.
+
+This is real program induction, but it is **not** evidence of general reasoning
+or a self-training foundation model. The finite task language makes the claim
+falsifiable and establishes infrastructure that broader future learners need:
+
+- an explicit epistemic state rather than invented certainty;
+- active experimentation instead of passive feedback alone;
+- independent verification rather than self-reported success;
+- executable transfer rather than retrieval of a similar example;
+- skill composition; and
+- a regression gate that rejects a replacement which breaks protected behavior.
+
+### Exhaustive constrained benchmark
+
+Every canonical program is hidden from a fresh learner. Discovery uses only
+letter probes; transfer uses numeric tokens not present during discovery. All 78
+skills are then retained in one registry and rechecked after sequential learning.
+
+| measure | result |
+|---|---:|
+| programs induced and verified | **78 / 78** |
+| mean active experiments | **1.37** |
+| maximum active experiments | **3** |
+| held-out verification cases | **468 / 468** |
+| novel-token transfer cases | **78 / 78** |
+| first-to-last sequential retention | **78 / 78** |
+
+Run the full benchmark with:
+
+```bash
+python3 examples/skill_benchmark.py
+```
+
+## What v0.4 established
+
+V0.4 turned the experience architecture into a runnable local browser agent,
+added the offline and live foundation adapters, and checkpointed every decision,
+outcome, and factual update.
+
+## What v0.3 established
+
+V0.3 added `AthenaAgent`, the bridge between broad pretrained intelligence and
+continual learning after deployment.
+
+### Stable foundation, adaptive experience
+
+A foundation model proposes candidate actions using its pretrained knowledge.
+Athena retrieves relevant past episodes and consolidated knowledge, predicts
+the reward of every candidate, and fuses the learned value with the
+foundation's prior. The real consequence is then revealed exactly once and
+updates a recursive contextual value model.
+
+This separation is intentional. Fine-tuning a large model on every interaction
+would let temporary noise, malicious feedback, and one unusual event corrupt
+general knowledge. Athena learns quickly in its external world model and only
+promotes repeated, source-labelled evidence into durable knowledge.
+
+```python
+from athena import AgentConfig, AthenaAgent, Candidate
+
+class MyFoundationModel:
+    def propose(self, situation, *, memories, facts, strategies, n):
+        # Replace this body with any hosted or local foundation model adapter.
+        return [
+            Candidate("email", "Send a detailed email", prior=0.75),
+            Candidate("text", "Send a concise text", prior=0.25),
+        ]
+
+agent = AthenaAgent(MyFoundationModel(), AgentConfig())
+
+decision = agent.decide(
+    "An urgent lead wants a showing tonight",
+    context_key="urgent-lead",
+)
+
+# The consequence arrives after Athena has committed its prediction.
+report = agent.learn(
+    decision.id,
+    reward=1.0,
+    observation="The lead replied and booked",
+    reliability=1.0,
+)
+
+# New facts remain provisional until independent evidence supports them.
+agent.learn_fact(
+    "downtown office closes",
+    "6 PM",
+    source="verified-calendar",
+)
+
+agent.save("experience.npz")
+agent = AthenaAgent.load("experience.npz", foundation=MyFoundationModel())
+```
+
+### Three learning timescales
+
+1. **Immediate adaptation:** recursive value models update after each measured
+   consequence and alter the next decision in the same context. A small
+   forgetting factor preserves a plasticity floor, so sustained new evidence
+   can reverse an old strategy instead of leaving it permanently frozen.
+2. **Episodic memory:** bounded memory retains trustworthy and surprising
+   experiences; similar situations retrieve both successes and failures.
+3. **Consolidated knowledge:** strategies need a confidence bound and minimum
+   effective sample count; factual claims need repeated, source-labelled
+   support. Contradictions reduce confidence instead of silently overwriting
+   the old belief.
+
+`adapt=False` resolves and scores a decision without changing any long-term
+state, providing the same frozen-evaluation contract as the numeric model.
+
+### Deployment-learning demonstration
+
+The included deterministic demo gives the foundation model a fixed general
+preference for email. In deployment, urgent leads actually respond to texts,
+while routine follow-ups still work best by email.
+
+| phase | first 5 reward | final 10 reward | final 10 squared error | final action |
+|---|---:|---:|---:|---|
+| new urgent context | 0.600 | **1.000** | 0.0090 | text |
+| different routine context | **1.000** | **1.000** | 0.0021 | email |
+| urgent context returns | **1.000** | **1.000** | 0.0018 | text |
+
+Athena changes the pretrained behavior, preserves the opposite policy in a
+different context, and recalls the learned exception immediately when its old
+context returns. Run the reproducible demo with:
+
+```bash
+python3 examples/experience_agent.py
+```
+
+## Numeric world-model quick start
 
 ```python
 from athena import Athena, Config
 
-model = Athena(Config(sizes=[4, 24, 12]))   # 4 sensors, two latent levels
+model = Athena(Config(sizes=[4, 24, 12]))
 
 for observation in stream:
-    guess  = model.predict()          # before looking
-    report = model.observe(observation)  # look, compare, settle, learn
-    print(report.mse, report.surprise, report.gain)
+    prediction = model.predict()          # cannot see observation yet
+    report = model.observe(observation)   # compare, infer, and learn once
+    print(report.mse, report.nll, report.surprise)
+
+model.save("athena.npz")
+model = Athena.load("athena.npz")        # exact next prediction is preserved
 ```
 
-Four things happen per timestep:
+For a frozen holdout, dynamic beliefs still follow the sequence while all
+long-term learning stays fixed:
 
-1. **Predict.** Beliefs roll forward in time, then generate downward through
-   the hierarchy to the senses. The bottom of that cascade is a prediction of
-   the next observation.
-2. **Compare.** The observation arrives. The difference is a prediction error.
-3. **Settle.** The latent beliefs relax until they explain what actually
-   happened. This is perception, and no weights change during it.
-4. **Learn.** The settled errors nudge the weights. Every update is local to a
-   pair of adjacent levels — no backpropagation through time, no replay buffer.
-
-## What makes it keep improving instead of drifting
-
-Four mechanisms, each of which was added because the model failed without it.
-
-**Precision.** An error on a channel that is normally reliable means something;
-the same error on a channel that is always noisy does not. Each unit tracks the
-inverse variance of its own error history and errors are weighted by it. The
-subtlety: precision is used for the *relative* weighting only, renormalised to
-mean 1. Raw precision rises as the model improves, so feeding it into the
-update rule multiplies the learning rate by a growing number until it
-oscillates — a model that becomes confident becomes unstable.
-
-**Volatility.** When errors run persistently larger than their own recent
-history, the world has probably changed and the model should learn faster
-rather than average the change away. A fast/slow surprise ratio drives a
-learning-rate multiplier. `StepReport.gain` exposes it; it spikes at every
-regime change.
-
-**Evidence-scaled steps.** A model that runs forever cannot keep a fixed
-learning rate: constant step size means constant gradient noise, so parameters
-random-walk around the solution and predictions decay back toward mediocre.
-Each observation accumulates evidence and shrinks the step; each surprise
-discounts that evidence and re-opens learning. The floor matters as much as the
-decay — a model that has stopped learning cannot notice it should start again.
-
-**Generalized coordinates.** The sensory level holds each reading *and its rate
-of change*. Position alone does not determine the next position; you need
-velocity, and a one-step local learning rule gives the latents almost no
-pressure to invent one. This is the standard move in the free-energy literature
-and it is the single change that took the model from "worse than trivial" to
-"much better than trivial".
-
-## Results
-
-Four channels of unrelated sinusoids, one observation at a time, measured as
-mean squared error on the next observation. Two baselines, because a predictive
-model on a smooth signal looks impressive against nothing at all:
-
-* **persistence** — predict the last value. Strong on smooth data.
-* **linear** — constant-velocity extrapolation. This is the honest bar: the
-  model is *handed* velocity as an input, so this prediction is available to it
-  for free. Beating persistence proves nothing. Beating this means it has
-  learned something about the signal.
-
-| steps | persistence | linear | Athena |
-|------:|------------:|-------:|-------:|
-| 0–2.5k | 4.8e-03 | 8.8e-05 | 4.4e-03 |
-| 2.5k–5k | 4.8e-03 | 8.8e-05 | 1.2e-03 |
-| 5k–7.5k | 4.8e-03 | 8.8e-05 | 5.4e-05 |
-| 10k–12.5k | 4.8e-03 | 8.8e-05 | 1.2e-05 |
-| 17.5k–20k | 4.8e-03 | 8.8e-05 | **6.5e-06** |
-
-It starts no better than doing nothing, crosses persistence, crosses linear
-extrapolation, and is still improving at 20,000 observations — 740x better than
-persistence and 13x better than linear, with no sign of a floor. That last
-column is the claim the whole idea rests on.
-
-```
-python3 examples/learning_curve.py    # the table above, with plots
-python3 examples/regime_shift.py      # what happens when the world changes
-python3 examples/precision.py         # learning which channels to believe
-python3 tests/test_athena.py          # the behavioural tests
+```python
+for observation in holdout:
+    report = model.observe(observation, learn=False)
 ```
 
-## When the world changes
+## What v0.2 established
 
-A single set of weights can only hold one story. When the dynamics switch, it
-does the only thing it can — slowly overwrite what it knew — and if the old
-world ever comes back, it has to learn it again from nothing. Learning fast
-makes this *worse*, not better: a quick learner thrashes.
+The original prototype showed that a predictive-coding hierarchy could improve
+online on smooth synthetic signals. V0.2 makes the claim harder to fool and
+adds a second timescale for retained dynamics.
 
-So the model holds a *bank* of transition operators with a Bayesian gate
-deciding which is currently active, recruiting a fresh one when nothing known
-explains the input. Three regimes rotating every 1000 steps, error averaged over
-the last four dwells, by position within a dwell:
+### A recursive sensory-dynamics bank
 
-| steps after a switch | `experts=1` | `experts=6` (default) |
-|---------------------:|------------:|----------------------:|
-| 0–100 | 2.2e-02 | 1.0e-02 |
-| 200–300 | 3.8e-03 | **4.8e-06** |
-| 400–500 | 1.2e-03 | 5.0e-06 |
-| 800–900 | 6.3e-05 | 5.0e-06 |
+A local linear recurrence should be remembered as a law, not continuously
+repainted into a general neural hierarchy. Each context therefore owns a
+recursive least-squares dynamics memory. It can retain simple local laws exactly
+and update them online with fractional responsibility from the context gate.
 
-The banked model is back under 1e-05 within 200 observations of every change
-and stays there, because it is *recognising* a regime rather than relearning
-it. The single-operator model spends most of each dwell climbing back, and
-never gets as far down before the world moves again.
+The predictive-coding hierarchy runs beside it and learns nonlinear residuals,
+slower structure, and context. Their forecasts are fused by measured forecast
+precision. There is no fixed mixing weight.
 
-The bank is not free, and the cost is worth stating plainly: for the first
-several regime cycles it is slightly *worse* than the single model, because it
-is still working out how many worlds there are and each expert is learning from
-only its share of the data. It pulls ahead after about six dwells and the gap
-widens from there. Averaged over a whole run: 4.0e-03 for `experts=1` against
-1.1e-03 for `experts=6`. On a world that never changes, the bank costs nothing
-measurable and recruits nobody.
+### Honest evaluation contracts
 
-Two things worth recording, because they cost the most to find:
+- **Prequential scoring:** predict first, reveal one point, then update once.
+- **Frozen evaluation:** `learn=False` cannot change weights, precision,
+  volatility, evidence, context-transition statistics, or dynamics parameters.
+- **Strong baselines:** online RLS is included because an AR(2) model solves a
+  noiseless sinusoid almost exactly.
+- **Calibrated scores:** next-observation NLL uses forecast precision, and the
+  hierarchy's Gaussian energy includes the log-precision normalization term.
+- **Behavioral tests:** returning-regime memory must beat a single model that
+  overwrites itself; merely producing a valid context distribution is not
+  enough.
+- **Resumable learning:** checkpoints include fast beliefs, slow weights,
+  uncertainty, context memory, histories, and random-generator state.
 
-* Handing the model a **perfect oracle** telling it which regime is active did
-  not help. If a mechanism does not beat its own oracle, the bottleneck is
-  somewhere else, and no amount of tuning the mechanism will find it. That
-  measurement is what redirected attention to the sensory representation, which
-  is where the actual problem was.
-* At the instant a regime changes, *every* expert looks wrong — including the
-  one that holds the incoming regime, because the continuous state beneath it
-  still carries the outgoing regime's phase. "A world I have never seen" and "a
-  world I know, caught mid-turn" are the same picture until you wait. So the
-  gate freezes learning during a probation window. Without that freeze the
-  incumbent expert relearns the new regime in place, and the memory of the old
-  one is destroyed by the very adaptation that makes the model look good in the
-  moment.
+## Numeric world-model architecture
 
-## Getting smarter, versus keeping a filing cabinet
+The numeric layer combines five mechanisms:
 
-The goal for Athena is that it should *get better at learning* as it learns --
-meet a novel problem, work out what it doesn't know, learn the skill, keep it,
-and have the next problem be easier because of it. That last clause is the
-whole claim, and it is the one that per-skill accuracy reports cannot see: a
-system that genuinely compounds and a system that files each skill in a
-separate drawer produce identical scorecards.
+1. **Predictive-coding hierarchy.** Each level predicts the level below and its
+   own next state. Latent beliefs settle against precision-weighted local errors
+   before weights change.
+2. **Recursive dynamics memories.** Each context has an online RLS recurrence
+   for stable, locally linear sensory laws.
+3. **Bayesian context gate.** A bank of experts prevents every new regime from
+   overwriting the previous one. Learning pauses during change-point probation,
+   then the gate recalls an existing expert or recruits unused capacity.
+4. **Forecast calibration.** Independent precision estimates decide how much to
+   trust the hierarchy and recursive dynamics on each channel.
+5. **Volatility and evidence.** Persistent surprise reopens learning; accumulated
+   evidence gradually reduces parameter noise without driving plasticity to
+   zero.
 
-They differ on exactly one number. Measured on the v9 branch's own registries,
-learning two skills first changes the third skill's held-out accuracy by:
+Generalized coordinates at the sensory level include recent velocity. That is a
+hand-designed inductive bias, not an emergent discovery, and the benchmarks say
+so explicitly.
 
-```
-horizontal_order  +0.000000
-vertical_order    +0.000000
-far_apart         +0.000000
-```
+## Measured results
 
-Not approximately zero. Bit-for-bit identical, in both the representation path
-and the neural-plasticity path. That is not a tuning problem, it is the
-architecture working as designed: every skill gets a freshly seeded network,
-and the shared representation is explicitly frozen while operators train
-(`"""Learn a reusable operator while keeping the representation frozen."""`).
-Forgetting measures 0.000000 too -- for the same reason. Isolation buys
-perfect retention by making transfer impossible.
+### Frozen stationary prediction
 
-Stability and plasticity are not two features to build separately. They are the
-two ends of one tradeoff, and freezing sits at one extreme.
+Four unrelated noiseless sinusoids. Models learn on steps 0–4,999, then all
+long-term adaptation is frozen for steps 5,000–5,999.
 
-`athena/transfer.py` takes the middle. Earlier experts stay bit-for-bit frozen,
-so retention remains exactly perfect and every promotion and rollback guarantee
-still holds -- but a *new* skill may read the internal features of the skills
-already learned. Old skills cannot be damaged because their weights are never
-written; new skills get cheaper because they start from what earlier skills
-worked out. This is progressive networks (Rusu et al., 2016), which was
-designed for this exact pair of requirements.
+| model | frozen MSE |
+|---|---:|
+| persistence | 4.802e-03 |
+| constant velocity | 7.248e-05 |
+| Athena v0.2 | **3.270e-09** |
+| online RLS(2) | 1.715e-10 |
 
-On a curriculum where each task reuses the previous task's feature, 12 seeds,
-mean held-out accuracy:
+Athena retains the learned signal and is about 22,000x better than constant
+velocity in the frozen window. It does not beat RLS on an exact AR(2) world and
+should not: RLS is the smaller model matched perfectly to that generator. The
+hierarchy has no extra structure to contribute there.
 
-| training examples | task | isolated | lateral | gain |
-|---|---|---:|---:|---:|
-| 48 | `x0*x1 + x2 > 0` | 0.845 | 0.850 | +0.006 |
-| 48 | `x0*x1 + x2*x3 > 0` | 0.585 | 0.667 | **+0.082** |
-| 96 | `x0*x1 + x2 > 0` | 0.861 | 0.883 | +0.023 |
-| 96 | `x0*x1 + x2*x3 > 0` | 0.615 | 0.756 | **+0.141** |
+Run it with:
 
-Forgetting across every seed and every configuration: **+0.000000**.
-
-Two honest costs. Transfer to a genuinely *unrelated* task is slightly negative
-(about −0.01), because the new skill has more inputs to overfit; the gain is
-not free, it is paid for by relatedness. And each expert's input grows with the
-number of skills it may read, so lateral sources are capped -- which bounds the
-cost but also bounds how far knowledge can compound. Neither is solved here.
-
-```
-python3 examples/transfer_benchmark.py
-python3 tests/test_transfer.py
+```bash
+python3 examples/honest_benchmark.py
 ```
 
-## What this is not
+### Returning regimes
 
-* **Not AGI, and not a language model.** It predicts low-dimensional continuous
-  streams. Scaling this shape of model to rich sensory data is exactly the open
-  research problem, not something this repository has solved.
-* **Not novel research.** The mechanisms are from the literature cited above.
-  What is here is a working, measured, readable implementation.
-* **Not tested beyond synthetic signals.** Every number above comes from
-  sinusoid mixtures. Real data is noisier, higher-dimensional, and less kind.
-* **Not fast.** Pure NumPy, one timestep at a time, ~5 ms per step at these
-  sizes. It is written to be read.
+Three unrelated regimes rotate every 500 observations. Errors below are
+averaged over the last six dwells while all models continue learning online.
 
-## Layout
+| model | first 100 after switch | settled remainder |
+|---|---:|---:|
+| Athena, six context memories | **8.570e-03** | **4.139e-05** |
+| Athena, one memory | 9.259e-03 | 9.450e-05 |
+| stationary RLS | 8.863e-03 | 1.833e-04 |
+| adaptive RLS, forgetting=0.995 | 1.020e-02 | 7.886e-05 |
 
-| file | what it holds |
-|------|---------------|
-| `athena/core.py` | the hierarchy, the loop, inference and learning |
-| `athena/precision.py` | inverse-variance weighting and volatility |
-| `athena/context.py` | the discrete gate over regimes |
-| `athena/transfer.py` | skills that make later skills cheaper |
-| `athena/world.py` | signal generators and the baselines |
-| `athena/plot.py` | terminal charts, so demos need nothing but NumPy |
+Here the context bank adds value beyond the RLS component: it can retrieve a
+previous law instead of compromising all regimes into one or forgetting the old
+one to learn the new one.
 
-Requires Python 3.10+ and NumPy. `pip install -r requirements.txt`.
+```bash
+python3 examples/continual_benchmark.py
+```
+
+These are deterministic synthetic experiments, not evidence of general
+intelligence. They establish two narrower properties: retained prediction when
+learning is frozen, and reduced interference when known dynamics return.
+
+## The learning loop
+
+For each observation Athena:
+
+1. rolls every hierarchy level forward and generates a top-down forecast;
+2. asks each recursive context memory for its forecast;
+3. fuses predictions using reliability measured on prior forecasts;
+4. scores the unseen observation with MSE, calibrated surprise, and NLL;
+5. infers which context most likely generated it;
+6. settles latent beliefs without changing weights;
+7. updates only the responsible local weights and recursive memory; and
+8. updates uncertainty and volatility after the prediction has been scored.
+
+Multi-step `predict(horizon=n)` runs both models on their own predictions without
+consuming observations.
+
+## Scientific position
+
+Predictive processing is an influential computational theory, not a settled
+claim that every part of every brain works this way. The foundational visual
+model is Rao & Ballard (1999); Friston's free-energy work extends the idea into a
+broader account of inference and action. Predictive-coding networks with local
+Hebbian updates can also approximate backpropagation under specific assumptions.
+
+- [Rao & Ballard, 1999](https://pubmed.ncbi.nlm.nih.gov/10195184/)
+- [Friston, 2010](https://www.nature.com/articles/nrn2787)
+- [Whittington & Bogacz, 2017](https://pmc.ncbi.nlm.nih.gov/articles/PMC5467749/)
+
+Athena combines mechanisms from this literature with standard online system
+identification. The current implementation is engineering research, not a claim
+of novel neuroscience.
+
+## What “learn forever” requires
+
+Continuous updates alone are not enough. A credible forever learner needs:
+
+- learnable signal and trustworthy feedback;
+- a stability/plasticity mechanism so new learning does not erase old learning;
+- calibrated uncertainty so noise is not mistaken for knowledge;
+- held-out and prequential tests that the learner cannot update through;
+- checkpoints, rollback, and versioned state;
+- bounded updates so surprise cannot destabilize the system; and
+- explicit resource limits or memory will grow forever even if capability does
+  not.
+
+Athena v0.9 implements early versions of these contracts across numeric streams,
+outcome-scored agent decisions, constrained executable skills, permissioned
+virtual workflows, expandable neural experts, a learned visual latent state,
+and verified work in disposable repositories. It now learns small
+representations, task-specific neural modules, episodic lessons, and repeatedly
+validated procedures after deployment. It does not learn an open-ended
+multimodal representation space, improve the hosted foundation's general
+weights, connect itself to arbitrary real-world accounts, perform broad causal
+reasoning, form autonomous goals, or safely self-modify. The repository does
+not bundle or train a foundation model.
+
+## Next research milestones
+
+1. Evaluate the repository apprentice on independent, procedurally generated
+   repair tasks and measure transfer, verifier gaming, and forgetting over time.
+2. Learn parameterized conditional, branching, and recovery procedures rather
+   than literal linear workflows.
+3. Extend learned representations from static synthetic grids to temporal,
+   multimodal experience and ground them in actions and causal consequences.
+4. Evaluate improvement, transfer, forgetting, and poisoned-feedback resistance
+   on procedurally novel tasks over long deployments and multiple seeds.
+5. Connect the agent layer to the numeric world model so imagined sensory
+   consequences can inform candidate selection.
+6. Connect protected experts to the foundation boundary through bounded adapters
+   while keeping evaluation, regression, checkpoint, and rollback gates external.
+7. Add multimodal representations and offline reflection while keeping a
+   protected evaluator responsible for promotion and rollback.
+
+## Validation and layout
+
+The current regression suite passes **94 / 94** behavioral tests.
+
+```bash
+python3 tests/test_athena.py          # 16 numeric world-model tests
+python3 tests/test_agent.py           # 8 deployment-learning tests
+python3 tests/test_skills.py          # 7 skill acquisition/retention tests
+python3 tests/test_tool_learning.py   # 15 tool, transfer, policy, rollback tests
+python3 tests/test_plasticity.py      # 8 neural promotion/retention tests
+python3 tests/test_representations.py # 9 latent reuse/transfer/rollback tests
+python3 tests/test_apprentice.py      # 14 persistence/isolation/learning tests
+python3 tests/test_readiness.py       # 4 fail-closed AGI audit tests
+python3 tests/test_playground.py      # 13 browser/API/foundation tests
+python3 examples/learned_representations.py
+python3 examples/live_apprentice.py
+python3 examples/representation_benchmark.py --seeds 10
+python3 examples/agi_readiness.py
+python3 examples/neural_plasticity.py
+python3 examples/neural_plasticity_benchmark.py
+python3 examples/tool_learning_agent.py
+python3 examples/tool_agent_benchmark.py
+python3 examples/novel_skill_learning.py
+python3 examples/skill_benchmark.py
+python3 examples/experience_agent.py
+python3 examples/honest_benchmark.py
+python3 examples/continual_benchmark.py
+python3 examples/precision.py
+```
+
+| path | purpose |
+|---|---|
+| `athena/core.py` | hierarchy, recursive memory fusion, loop, checkpoints |
+| `athena/context.py` | Bayesian regime inference and protected recruitment |
+| `athena/agent.py` | foundation-model boundary, decisions, outcome learning |
+| `athena/foundation.py` | offline demo, OpenAI, and OpenRouter model adapters |
+| `athena/apprentice.py` | persistent queue, disposable repositories, ledger, verifier, procedures |
+| `athena/apprentice_cli.py` | submit, teach, retry, run, daemon, and status commands |
+| `athena/plasticity.py` | neural experts, replay, promotion, rollback, checkpoints |
+| `athena/representations.py` | masked sensor encoder, latent state, grounded reasoning heads |
+| `athena/readiness.py` | mandatory fail-closed AGI evidence gates |
+| `athena/memory.py` | episodic retrieval and evidence-gated factual beliefs |
+| `athena/skills.py` | knowledge gaps, active induction, verification, skill registry |
+| `athena/tool_learning.py` | permission policy, unfamiliar tools, workflow compilation |
+| `athena/playground.py` | local server, persistent API, and launch command |
+| `athena/static/` | browser interface for tasks, outcomes, and memory |
+| `athena/baselines.py` | online RLS and its prequential contract |
+| `athena/precision.py` | uncertainty and volatility estimation |
+| `athena/world.py` | deterministic synthetic worlds and simple baselines |
+| `examples/` | reproducible stationary and continual benchmarks |
+| `tests/test_athena.py` | numeric behavioral claims and persistence contracts |
+| `tests/test_agent.py` | post-deployment adaptation, context, facts, checkpoints |
+| `tests/test_skills.py` | induction, instruction, transfer, composition, regression |
+| `tests/test_tool_learning.py` | tool calls, validation, transfer, persistence, safety |
+| `tests/test_plasticity.py` | neural updates, transfer, retention, rollback, persistence |
+| `tests/test_representations.py` | raw perception, latent reuse, transfer, refinement, rollback |
+| `tests/test_apprentice.py` | real-repository isolation, persistence, policy, promotion, rollback |
+| `tests/test_readiness.py` | AGI audit conservatism and missing-evidence behavior |
+| `tests/test_playground.py` | live adapter contract and end-to-end browser API |
+
+Requires Python 3.10+ and NumPy:
+
+```bash
+python3 -m pip install -e .
+```

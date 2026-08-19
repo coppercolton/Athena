@@ -1,0 +1,21 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "athena-predictive-processing"
+version = "0.9.0"
+description = "A persistent continual-learning agent with verified repository apprenticeship"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = ["numpy>=1.24"]
+
+[project.scripts]
+athena-playground = "athena.playground:main"
+athena-apprentice = "athena.apprentice_cli:main"
+
+[tool.setuptools.packages.find]
+include = ["athena*"]
+
+[tool.setuptools.package-data]
+athena = ["static/*.html", "static/*.css", "static/*.js"]

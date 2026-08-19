@@ -11,11 +11,11 @@ The whole system is one loop:
     4.  learn     -- nudge the weights in the direction the settled errors
                      point, and update the precision estimates.
 
-Nothing here is trained offline on a dataset. There is no separate training
-phase, no backpropagation through time, and no replay buffer. Every update is
-local to a pair of adjacent levels and happens on the same timestep as the
-observation that caused it, which is what lets the model keep improving for as
-long as it is running.
+Nothing here is trained in a separate offline batch phase. Observations are the
+data. There is no backpropagation through time or replay buffer: each hierarchy
+update is local to adjacent levels and happens after the prediction has been
+scored. That supports continual adaptation; it does not guarantee that every
+stream is predictable or that error decreases monotonically.
 
 Notation
 --------
@@ -30,21 +30,23 @@ prediction from the level above, and a *temporal* error against the level's own
 forward prediction from the previous timestep. Free energy is the sum of both,
 each weighted by its own precision.
 
-The top level plays a special role. Its states are read through a softmax as a
-context code -- a distribution over "which world am I in" -- and that code
-gates which transition operator the levels below it use. Inference over the
-context is fast, so a returning regime is *recognised* within a few timesteps,
-while learning the operators themselves stays slow. That split is the
-difference between a model that adapts and a model that remembers.
+Alongside the continuous hierarchy is a discrete Bayesian context gate -- a
+distribution over "which world am I in" -- that selects a banked transition
+and generative operator. Context inference is fast, so a returning regime can
+be *recognised* within a few timesteps, while learning the operators stays
+slow. That split is the difference between adapting and remembering.
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
+import json
+from pathlib import Path
 from typing import Sequence
 
 import numpy as np
 
+from .baselines import OnlineRLS
 from .context import ContextGate
 from .precision import Precision, VolatilityTracker
 
@@ -82,8 +84,17 @@ class Config:
     precision_rate: float = 0.02
     precision_floor: float = 1e-2
     precision_ceiling: float = 1e3
+    fusion_precision_ceiling: float = 1e6
+    fusion_temperature: float = 0.5
     top_prior_precision: float = 0.05
     surprise_gain_max: float = 8.0
+
+    # exact recursive memory for locally linear sensory dynamics. The
+    # hierarchy remains responsible for nonlinear residuals and contexts.
+    dynamics_head: bool = True
+    dynamics_order: int = 2
+    dynamics_forgetting: float = 1.0
+    dynamics_ridge: float = 1e-3
 
     # hierarchy and context
     tau: float = 2.2
@@ -100,6 +111,16 @@ class Config:
             raise ValueError("all level sizes must be >= 1")
         if self.orders < 1:
             raise ValueError("orders must be >= 1")
+        if self.dynamics_order < 1:
+            raise ValueError("dynamics_order must be >= 1")
+        if not 0.0 < self.dynamics_forgetting <= 1.0:
+            raise ValueError("dynamics_forgetting must be in (0, 1]")
+        if self.dynamics_ridge <= 0.0:
+            raise ValueError("dynamics_ridge must be > 0")
+        if self.fusion_precision_ceiling <= self.precision_floor:
+            raise ValueError("fusion_precision_ceiling must exceed precision_floor")
+        if self.fusion_temperature <= 0.0:
+            raise ValueError("fusion_temperature must be > 0")
 
 
 @dataclass
@@ -111,6 +132,7 @@ class StepReport:
     observation: np.ndarray
     mse: float
     surprise: float
+    nll: float
     free_energy: float
     gain: float
     context: np.ndarray
@@ -127,6 +149,8 @@ class Athena:
             guess = model.predict()      # before seeing obs
             report = model.observe(obs)  # after seeing obs
     """
+
+    CHECKPOINT_VERSION = 1
 
     def __init__(self, config: Config) -> None:
         self.cfg = config
@@ -202,6 +226,42 @@ class Athena:
             Precision(n, config.precision_rate, config.precision_floor, config.precision_ceiling)
             for n in sizes
         ]
+        # Calibrate the actual next-observation forecast separately from the
+        # errors measured after latent-state settling. A reconstruction can be
+        # excellent even when the observation was impossible to predict.
+        self.pi_forecast = Precision(
+            self.n_obs,
+            config.precision_rate,
+            config.precision_floor,
+            config.precision_ceiling,
+        )
+        # A stable recursive sensory model retains simple local laws exactly;
+        # the predictive-coding hierarchy learns the residual structure it
+        # cannot explain. Their next-step forecasts are fused by measured
+        # reliability rather than by a hand-tuned mixing weight.
+        self.dynamics_bank = [
+            OnlineRLS(
+                self.n_obs,
+                order=config.dynamics_order,
+                forgetting=config.dynamics_forgetting,
+                ridge=config.dynamics_ridge,
+            )
+            for _ in range(self.n_experts)
+        ]
+        self.pi_hierarchy_forecast = Precision(
+            self.n_obs,
+            config.precision_rate,
+            config.precision_floor,
+            config.fusion_precision_ceiling,
+        )
+        self.pi_dynamics_forecast = Precision(
+            self.n_obs,
+            config.precision_rate,
+            config.precision_floor,
+            config.fusion_precision_ceiling,
+        )
+        self._forecast_hierarchy = np.zeros(self.n_obs)
+        self._forecast_dynamics = np.zeros(self.n_obs)
 
         self.volatility = VolatilityTracker(max_gain=config.surprise_gain_max)
         # Accumulated evidence about the parameters; see _learning_scale.
@@ -274,7 +334,7 @@ class Athena:
         this separates them by two orders of magnitude while the reconstruction
         precision barely moves.
         """
-        return self.pi_temporal[0].value[: self.n_obs].copy()
+        return self.pi_forecast.value.copy()
 
     @property
     def context(self) -> np.ndarray:
@@ -398,7 +458,33 @@ class Athena:
         states = [x.copy() for x in self.x]
         for step in range(horizon):
             states = self._rollout(states, ctx, record=(step == 0))
-        return states[0][: self.n_obs].copy()
+        hierarchy = states[0][: self.n_obs].copy()
+        dynamics_predictions = np.stack(
+            [head.predict(horizon=horizon) for head in self.dynamics_bank]
+        )
+        dynamics = np.einsum("k,kc->c", ctx, dynamics_predictions)
+        if not self.cfg.dynamics_head:
+            if horizon == 1:
+                self._forecast_hierarchy = hierarchy
+                self._forecast_dynamics = dynamics
+            return hierarchy
+        hierarchy_precision = self.pi_hierarchy_forecast.value
+        dynamics_precision = self.pi_dynamics_forecast.value
+        # The two heads are correlated, so treating their precisions as
+        # independent Gaussian evidence would double-count shared information.
+        # A low-temperature mixture-of-experts gate makes reliability decisive
+        # without becoming a discontinuous winner-take-all switch.
+        logits = np.stack(
+            [np.log(hierarchy_precision), np.log(dynamics_precision)]
+        ) / self.cfg.fusion_temperature
+        logits -= logits.max(axis=0, keepdims=True)
+        weights = np.exp(logits)
+        weights /= weights.sum(axis=0, keepdims=True)
+        prediction = weights[0] * hierarchy + weights[1] * dynamics
+        if horizon == 1:
+            self._forecast_hierarchy = hierarchy
+            self._forecast_dynamics = dynamics
+        return prediction
 
     def _expert_errors(self, embedded: np.ndarray) -> np.ndarray:
         """How badly each expert alone would have predicted this observation.
@@ -552,8 +638,40 @@ class Athena:
     # ------------------------------------------------------------------
     # the loop
     # ------------------------------------------------------------------
+    @staticmethod
+    def _gaussian_nll(err: np.ndarray, precision: np.ndarray) -> float:
+        """Gaussian negative log likelihood for an error and its precision."""
+        return 0.5 * float(
+            np.sum(precision * err * err - np.log(precision) + np.log(2.0 * np.pi))
+        )
+
+    def _free_energy(self) -> float:
+        """Calibrated Gaussian energy of the settled hierarchy.
+
+        The log-precision term matters whenever precision is learned. Omitting
+        it would reward infinite confidence and make scores from two points in
+        training incomparable.
+        """
+        total = 0.0
+        for i in range(self.n_levels):
+            spatial_precision = (
+                np.full(self.sizes[i], self.cfg.top_prior_precision)
+                if i == self.top
+                else self.pi_spatial[i].value
+            )
+            total += self._gaussian_nll(self._err_spatial[i], spatial_precision)
+            total += self._gaussian_nll(
+                self._err_temporal[i], self.pi_temporal[i].value
+            )
+        return total
+
     def observe(self, obs: np.ndarray, learn: bool = True) -> StepReport:
-        """Take in one observation: predict, compare, settle, learn."""
+        """Take in one observation: predict, compare, settle, optionally learn.
+
+        With ``learn=False`` dynamic beliefs and history still advance so the
+        model can be evaluated on a sequence, but weights, precisions,
+        volatility, evidence, and long-term context statistics stay frozen.
+        """
         obs = np.asarray(obs, dtype=float).reshape(-1)
         if obs.shape[0] != self.n_obs:
             raise ValueError(
@@ -566,10 +684,11 @@ class Athena:
         err = obs - prediction
         mse = float(np.mean(err * err))
         embedded = self._embed(obs)
-        # Raw (un-normalised) precision here on purpose: surprise should scale
-        # with confidence, so a model that was sure and wrong reports a large
-        # number. Only the *update rules* use normalised precision.
-        surprise = float(np.sum(self.pi_spatial[0].value[: self.n_obs] * err * err))
+        forecast_precision = self.pi_forecast.value
+        # Mean squared innovation in calibrated units. This stays non-negative
+        # for the volatility detector, while NLL below includes calibration.
+        surprise = float(np.mean(forecast_precision * err * err))
+        nll = self._gaussian_nll(err, forecast_precision) / self.n_obs
 
         self.x_prev = [x.copy() for x in self.x]
         self._a_prev = [self._act(i, x) for i, x in enumerate(self.x_prev)]
@@ -577,9 +696,21 @@ class Athena:
         # Ask which set of dynamics just generated this observation, and let
         # the answer choose the operator the rest of the step runs on.
         expert_error = self._expert_errors(embedded)
-        posterior = self.gate.infer(expert_error)
-        self.gate.commit(posterior, best_error=float(expert_error.min()))
+        posterior = self.gate.infer(expert_error, adapt=learn)
+        self.gate.commit(
+            posterior,
+            best_error=float(expert_error.min()),
+            adapt=learn,
+        )
         ctx = self.gate.belief
+        if self.cfg.dynamics_head:
+            dynamics_learning = learn and self.gate.learning_enabled
+            for k, head in enumerate(self.dynamics_bank):
+                head.observe(
+                    obs,
+                    learn=dynamics_learning,
+                    responsibility=float(ctx[k]),
+                )
 
         # Warm-start each latent at its own forward prediction, so settling is
         # a correction to a guess rather than a search from nothing.
@@ -588,28 +719,29 @@ class Athena:
 
         self._settle(embedded, ctx)
 
-        self.volatility.update(surprise)
         gain = self.volatility.gain
-        scale = self._learning_scale(gain)
-        # The gate withholds learning while it is deciding whether this is a
-        # world it already knows. Adapting through that window is what destroys
-        # the memory of the regime being left behind.
-        if learn and self.gate.learning_enabled:
-            self._learn(scale)
+        free_energy = self._free_energy()
+        if learn:
+            self.volatility.update(surprise)
+            gain = self.volatility.gain
+            scale = self._learning_scale(gain)
+            # The gate withholds learning while it is deciding whether this is
+            # a world it already knows. Adapting through that window destroys
+            # the memory of the regime being left behind.
+            if self.gate.learning_enabled:
+                self._learn(scale)
 
-        for i in range(self.n_levels):
-            self.pi_spatial[i].update(self._err_spatial[i])
-            self.pi_temporal[i].update(self._err_temporal[i])
-            # Score each forecast pathway against where the state actually
-            # ended up, which is the comparison the fusion needs.
-            self.pi_fuse_top[i].update(self.x[i] - self._pred_top[i])
-            self.pi_fuse_time[i].update(self.x[i] - self._pred_time[i])
-
-        free_energy = 0.0
-        for i in range(self.n_levels):
-            es, et = self._err_spatial[i], self._err_temporal[i]
-            free_energy += 0.5 * float(np.sum(self.pi_spatial[i].value * es * es))
-            free_energy += 0.5 * float(np.sum(self.pi_temporal[i].value * et * et))
+            self.pi_forecast.update(err)
+            if self.cfg.dynamics_head:
+                self.pi_hierarchy_forecast.update(obs - self._forecast_hierarchy)
+                self.pi_dynamics_forecast.update(obs - self._forecast_dynamics)
+            for i in range(self.n_levels):
+                self.pi_spatial[i].update(self._err_spatial[i])
+                self.pi_temporal[i].update(self._err_temporal[i])
+                # Score each forecast pathway against where the state actually
+                # ended up, which is the comparison the fusion needs.
+                self.pi_fuse_top[i].update(self.x[i] - self._pred_top[i])
+                self.pi_fuse_time[i].update(self.x[i] - self._pred_time[i])
 
         self.step_count += 1
         return StepReport(
@@ -618,11 +750,190 @@ class Athena:
             observation=obs.copy(),
             mse=mse,
             surprise=surprise,
+            nll=nll,
             free_energy=free_energy,
             gain=gain,
             context=self.gate.belief.copy(),
             level_error=[float(np.linalg.norm(e)) for e in self._err_spatial],
         )
+
+    def save(self, path: str | Path) -> Path:
+        """Write a complete, resumable checkpoint without pickle.
+
+        The checkpoint includes fast beliefs, slow weights, uncertainty,
+        context memory, volatility, history, and random-generator state. A
+        loaded model therefore makes the same next prediction as the model
+        that was saved instead of merely restoring its weight matrices.
+        """
+        target = Path(path)
+        arrays: dict[str, np.ndarray] = {
+            "history": (
+                np.stack(self._history)
+                if self._history
+                else np.empty((0, self.n_obs), dtype=float)
+            ),
+            "forecast_var": self.pi_forecast.var,
+            "hierarchy_forecast_var": self.pi_hierarchy_forecast.var,
+            "dynamics_forecast_var": self.pi_dynamics_forecast.var,
+            "forecast_hierarchy": self._forecast_hierarchy,
+            "forecast_dynamics": self._forecast_dynamics,
+            "gate_belief": self.gate.belief,
+            "gate_prev_belief": self.gate.prev_belief,
+            "gate_A": self.gate.A,
+            "gate_usage": self.gate.usage,
+            "gate_claimed": self.gate.claimed,
+            "gate_evidence": self.gate._evidence,
+        }
+        for k, head in enumerate(self.dynamics_bank):
+            arrays[f"dynamics_theta_{k}"] = head.theta
+            arrays[f"dynamics_covariance_{k}"] = head.covariance
+            arrays[f"dynamics_history_{k}"] = (
+                np.stack(head.history)
+                if head.history
+                else np.empty((0, self.n_obs), dtype=float)
+            )
+        for i in range(self.n_levels):
+            arrays[f"x_{i}"] = self.x[i]
+            arrays[f"x_prev_{i}"] = self.x_prev[i]
+            arrays[f"a_prev_{i}"] = self._a_prev[i]
+            arrays[f"err_spatial_{i}"] = self._err_spatial[i]
+            arrays[f"err_temporal_{i}"] = self._err_temporal[i]
+            arrays[f"pred_top_{i}"] = self._pred_top[i]
+            arrays[f"pred_time_{i}"] = self._pred_time[i]
+            arrays[f"M_{i}"] = self.M[i]
+            arrays[f"pi_spatial_{i}"] = self.pi_spatial[i].var
+            arrays[f"pi_temporal_{i}"] = self.pi_temporal[i].var
+            arrays[f"pi_fuse_top_{i}"] = self.pi_fuse_top[i].var
+            arrays[f"pi_fuse_time_{i}"] = self.pi_fuse_time[i].var
+            if i > 0:
+                arrays[f"W_{i}"] = self.W[i]
+                arrays[f"b_{i}"] = self.b[i]
+
+        metadata = {
+            "version": self.CHECKPOINT_VERSION,
+            "config": asdict(self.cfg),
+            "step_count": self.step_count,
+            "evidence": self.evidence,
+            "dynamics_step_counts": [head.step_count for head in self.dynamics_bank],
+            "rng_state": self.rng.bit_generator.state,
+            "volatility": {
+                "fast": self.volatility.fast,
+                "slow": self.volatility.slow,
+                "seen": self.volatility._seen,
+                "fast_rate": self.volatility.fast_rate,
+                "slow_rate": self.volatility.slow_rate,
+                "max_gain": self.volatility.max_gain,
+            },
+            "gate": {
+                "state": self.gate.state.value,
+                "baseline": self.gate.baseline,
+                "allocations": self.gate.allocations,
+                "switches": self.gate.switches,
+                "left": self.gate._left,
+                "locked": self.gate._locked,
+                "temperature": self.gate.temperature,
+                "lr": self.gate.lr,
+                "floor": self.gate.floor,
+                "change_factor": self.gate.change_factor,
+                "probation": self.gate.probation,
+                "commit_steps": self.gate.commit_steps,
+                "fresh_claims": self.gate.fresh_claims,
+                "rng_state": self.gate._rng.bit_generator.state,
+            },
+        }
+        with target.open("wb") as handle:
+            np.savez_compressed(
+                handle,
+                metadata=np.asarray(json.dumps(metadata)),
+                **arrays,
+            )
+        return target
+
+    @classmethod
+    def load(cls, path: str | Path) -> "Athena":
+        """Restore a model created by :meth:`save`."""
+        source = Path(path)
+        with np.load(source, allow_pickle=False) as checkpoint:
+            metadata = json.loads(str(checkpoint["metadata"].item()))
+            version = int(metadata.get("version", -1))
+            if version != cls.CHECKPOINT_VERSION:
+                raise ValueError(
+                    f"unsupported Athena checkpoint version {version}; "
+                    f"expected {cls.CHECKPOINT_VERSION}"
+                )
+
+            model = cls(Config(**metadata["config"]))
+            model.step_count = int(metadata["step_count"])
+            model.evidence = float(metadata["evidence"])
+            model.rng.bit_generator.state = metadata["rng_state"]
+            model._history = [row.copy() for row in checkpoint["history"]]
+            model.pi_forecast.var = checkpoint["forecast_var"].copy()
+            model.pi_hierarchy_forecast.var = checkpoint[
+                "hierarchy_forecast_var"
+            ].copy()
+            model.pi_dynamics_forecast.var = checkpoint[
+                "dynamics_forecast_var"
+            ].copy()
+            model._forecast_hierarchy = checkpoint["forecast_hierarchy"].copy()
+            model._forecast_dynamics = checkpoint["forecast_dynamics"].copy()
+            for k, head in enumerate(model.dynamics_bank):
+                head.theta = checkpoint[f"dynamics_theta_{k}"].copy()
+                head.covariance = checkpoint[f"dynamics_covariance_{k}"].copy()
+                head.history = [
+                    row.copy() for row in checkpoint[f"dynamics_history_{k}"]
+                ]
+                head.step_count = int(metadata["dynamics_step_counts"][k])
+
+            for i in range(model.n_levels):
+                model.x[i] = checkpoint[f"x_{i}"].copy()
+                model.x_prev[i] = checkpoint[f"x_prev_{i}"].copy()
+                model._a_prev[i] = checkpoint[f"a_prev_{i}"].copy()
+                model._err_spatial[i] = checkpoint[f"err_spatial_{i}"].copy()
+                model._err_temporal[i] = checkpoint[f"err_temporal_{i}"].copy()
+                model._pred_top[i] = checkpoint[f"pred_top_{i}"].copy()
+                model._pred_time[i] = checkpoint[f"pred_time_{i}"].copy()
+                model.M[i] = checkpoint[f"M_{i}"].copy()
+                model.pi_spatial[i].var = checkpoint[f"pi_spatial_{i}"].copy()
+                model.pi_temporal[i].var = checkpoint[f"pi_temporal_{i}"].copy()
+                model.pi_fuse_top[i].var = checkpoint[f"pi_fuse_top_{i}"].copy()
+                model.pi_fuse_time[i].var = checkpoint[f"pi_fuse_time_{i}"].copy()
+                if i > 0:
+                    model.W[i] = checkpoint[f"W_{i}"].copy()
+                    model.b[i] = checkpoint[f"b_{i}"].copy()
+
+            gate_meta = metadata["gate"]
+            model.gate.belief = checkpoint["gate_belief"].copy()
+            model.gate.prev_belief = checkpoint["gate_prev_belief"].copy()
+            model.gate.A = checkpoint["gate_A"].copy()
+            model.gate.usage = checkpoint["gate_usage"].copy()
+            model.gate.claimed = checkpoint["gate_claimed"].copy()
+            model.gate._evidence = checkpoint["gate_evidence"].copy()
+            model.gate.state = type(model.gate.state)(gate_meta["state"])
+            model.gate.baseline = gate_meta["baseline"]
+            model.gate.allocations = list(gate_meta["allocations"])
+            model.gate.switches = list(gate_meta["switches"])
+            model.gate._left = int(gate_meta["left"])
+            model.gate._locked = int(gate_meta["locked"])
+            for name in (
+                "temperature",
+                "lr",
+                "floor",
+                "change_factor",
+                "fresh_claims",
+            ):
+                setattr(model.gate, name, float(gate_meta[name]))
+            model.gate.probation = int(gate_meta["probation"])
+            model.gate.commit_steps = int(gate_meta["commit_steps"])
+            model.gate._rng.bit_generator.state = gate_meta["rng_state"]
+
+            volatility = metadata["volatility"]
+            model.volatility.fast = float(volatility["fast"])
+            model.volatility.slow = float(volatility["slow"])
+            model.volatility._seen = int(volatility["seen"])
+            model.volatility.fast_rate = float(volatility["fast_rate"])
+            model.volatility.slow_rate = float(volatility["slow_rate"])
+            model.volatility.max_gain = float(volatility["max_gain"])
+            return model
 
     def run(self, stream, learn: bool = True) -> list[StepReport]:
         """Consume an iterable of observations, returning one report each."""
