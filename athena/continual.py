@@ -201,6 +201,19 @@ class ContinualLearner:
         """The shared representation -- the thing that keeps improving."""
         return self._forward(np.atleast_2d(np.asarray(x, dtype=float)))[-1]
 
+    def _head_signal(self, skill: str, h: np.ndarray, y: np.ndarray, total: int):
+        """Head gradients and the error arriving at the trunk.
+
+        Factored out so a different output layer -- multi-class, ranking,
+        regression -- can be substituted without touching the trunk, which is
+        the part every skill shares and the part all the continual-learning
+        machinery protects.
+        """
+        z = h @ self.heads[skill] + self.head_bias[skill]
+        p = 1.0 / (1.0 + np.exp(-np.clip(z, -30.0, 30.0)))
+        err = (p - y) / total
+        return h.T @ err, float(err.sum()), np.outer(err, self.heads[skill])
+
     def _probability(self, skill: str, x: np.ndarray) -> np.ndarray:
         h = self._forward(x)[-1]
         z = h @ self.heads[skill] + self.head_bias[skill]
@@ -239,14 +252,11 @@ class ContinualLearner:
                 continue
             activations = self._forward(x)
             h = activations[-1]
-            z = h @ self.heads[skill] + self.head_bias[skill]
-            p = 1.0 / (1.0 + np.exp(-np.clip(z, -30.0, 30.0)))
-            err = (p - y) / total
+            head_grad, bias_grad, dl_dh = self._head_signal(skill, h, y, total)
+            grad_head[skill] = head_grad
+            grad_head_bias[skill] = bias_grad
 
-            grad_head[skill] = h.T @ err
-            grad_head_bias[skill] = float(err.sum())
-
-            delta = np.outer(err, self.heads[skill]) * (1.0 - h * h)
+            delta = dl_dh * (1.0 - h * h)
             for layer in range(len(self.weights) - 1, -1, -1):
                 grad_w[layer] += delta.T @ activations[layer]
                 grad_b[layer] += delta.sum(axis=0)
@@ -286,12 +296,25 @@ class ContinualLearner:
         self.steps += 1
 
     # ------------------------------------------------------------------
-    def _replay_batch(self, exclude: str) -> dict[str, tuple[np.ndarray, np.ndarray]]:
+    def _replay_batch(self) -> dict[str, tuple[np.ndarray, np.ndarray]]:
+        """Sample rehearsal from every skill's lifetime, including the current one.
+
+        Excluding the skill being trained looks harmless and is not. A skill's
+        own past is exactly what it is at risk of overwriting when its input
+        distribution shifts underneath it, and in a single-head setting -- where
+        every task is the same skill -- excluding it removes rehearsal
+        altogether. On the domain-incremental benchmark that turned the replay
+        condition into a bit-for-bit copy of plain fine-tuning, which is how the
+        bug was found: two conditions that must differ were identical.
+        """
+        if self.config.replay_per_step <= 0:
+            # A rounding floor of one sample per skill is not "no replay"; it is
+            # a small amount of replay, and it quietly lifted the supposed
+            # lower-bound baseline by twenty points before this was caught.
+            return {}
         per_skill = max(self.config.replay_per_step // max(len(self._order), 1), 1)
         batches: dict[str, tuple[np.ndarray, np.ndarray]] = {}
         for skill in self._order:
-            if skill == exclude:
-                continue
             items = self._replay[skill].items
             if not items:
                 continue
@@ -320,11 +343,17 @@ class ContinualLearner:
                 )
             self._replay[skill].add(item)
 
-        batches = self._replay_batch(exclude=skill)
-        batches[skill] = (
-            np.asarray([c.inputs for c in batch], dtype=float),
-            np.asarray([c.target for c in batch], dtype=float),
-        )
+        batches = self._replay_batch()
+        fresh_x = np.asarray([c.inputs for c in batch], dtype=float)
+        fresh_y = np.asarray([c.target for c in batch], dtype=float)
+        if skill in batches:
+            past_x, past_y = batches[skill]
+            batches[skill] = (
+                np.concatenate([fresh_x, past_x]),
+                np.concatenate([fresh_y, past_y]),
+            )
+        else:
+            batches[skill] = (fresh_x, fresh_y)
         self._step(batches)
 
     # ------------------------------------------------------------------
@@ -333,7 +362,7 @@ class ContinualLearner:
             [w.copy() for w in self.weights],
             [b.copy() for b in self.biases],
             {k: v.copy() for k, v in self.heads.items()},
-            dict(self.head_bias),
+            {k: (v.copy() if isinstance(v, np.ndarray) else v) for k, v in self.head_bias.items()},
         )
 
     def _restore(self, snapshot: tuple) -> None:
@@ -342,7 +371,8 @@ class ContinualLearner:
         self.biases = [b.copy() for b in biases]
         for name, vector in heads.items():
             self.heads[name] = vector.copy()
-        self.head_bias.update(head_bias)
+        for name, bias in head_bias.items():
+            self.head_bias[name] = bias.copy() if isinstance(bias, np.ndarray) else bias
         self._velocity = [np.zeros_like(w) for w in self.weights]
         self._bias_velocity = [np.zeros_like(b) for b in self.biases]
 
@@ -433,6 +463,84 @@ class ContinualLearner:
             retained=self.retention(),
             rolled_back=rolled_back,
         )
+
+
+@dataclass(frozen=True)
+class Sample:
+    """One labelled case for a multi-class skill.
+
+    ``inputs`` may be a tuple or a numpy array. Real benchmarks make the
+    difference matter: holding fifty thousand CIFAR images as Python tuples of
+    three thousand floats each costs an order of magnitude more memory than the
+    same data as float32 rows, and rebuilding those tuples on every batch
+    dominates the run.
+    """
+
+    inputs: object
+    target: int
+
+    def __post_init__(self) -> None:
+        if len(self.inputs) == 0:  # type: ignore[arg-type]
+            raise ValueError("inputs must not be empty")
+        if self.target < 0:
+            raise ValueError("target must be a non-negative class index")
+
+
+class MultiClassLearner(ContinualLearner):
+    """The same shared trunk, with an n-way softmax head per skill.
+
+    Only the output layer differs. The trunk, replay, consolidation, rollback
+    and every guarantee attached to them are inherited unchanged, which is the
+    point: it lets the continual-learning machinery be evaluated on a standard
+    benchmark rather than only on the binary problems it was developed against.
+    """
+
+    def __init__(self, config: ContinualConfig | None = None, *, classes: int = 5) -> None:
+        if classes < 2:
+            raise ValueError("classes must be >= 2")
+        self.classes = int(classes)
+        super().__init__(config)
+
+    def _ensure_head(self, skill: str) -> None:
+        if skill in self.heads:
+            return
+        width = self.config.hidden[-1]
+        self.heads[skill] = self._rng.normal(
+            0.0, 1.0 / np.sqrt(width), size=(self.classes, width)
+        )
+        self.head_bias[skill] = np.zeros(self.classes)
+        self._replay[skill] = _Reservoir(self.config.replay_capacity, self._rng)
+        self._order.append(skill)
+
+    def _logits(self, skill: str, h: np.ndarray) -> np.ndarray:
+        return h @ self.heads[skill].T + self.head_bias[skill]
+
+    @staticmethod
+    def _softmax(z: np.ndarray) -> np.ndarray:
+        z = z - z.max(axis=1, keepdims=True)
+        e = np.exp(z)
+        return e / (e.sum(axis=1, keepdims=True) + 1e-12)
+
+    def _head_signal(self, skill: str, h: np.ndarray, y: np.ndarray, total: int):
+        p = self._softmax(self._logits(skill, h))
+        onehot = np.zeros_like(p)
+        onehot[np.arange(len(y)), y.astype(int)] = 1.0
+        err = (p - onehot) / total
+        return err.T @ h, err.sum(axis=0), err @ self.heads[skill]
+
+    def _probability(self, skill: str, x: np.ndarray) -> np.ndarray:
+        return self._softmax(self._logits(skill, self._forward(x)[-1]))
+
+    def predict(self, skill: str, inputs: Sequence[float]) -> int:
+        x = np.atleast_2d(np.asarray(inputs, dtype=float))
+        return int(self._probability(skill, x)[0].argmax())
+
+    def accuracy(self, skill: str, cases: Sequence[Sample]) -> float:
+        if not cases:
+            raise ValueError("need at least one case")
+        x = np.asarray([c.inputs for c in cases], dtype=float)
+        y = np.asarray([c.target for c in cases], dtype=int)
+        return float((self._probability(skill, x).argmax(axis=1) == y).mean())
 
 
 class SharedPlasticity:

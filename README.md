@@ -874,6 +874,59 @@ python3 examples/never_stop_learning.py
 python3 examples/transfer_benchmark.py
 ```
 
+## Where it stands on a benchmark it did not choose
+
+Everything above was measured on data built for it, which can only show that it
+behaves as designed on problems selected to show it behaving as designed.
+Permuted-MNIST is the standard continual-learning benchmark and the one the
+elastic-weight-consolidation results were reported on. It is normally run with
+a plain MLP, so this backbone is comparable to published work rather than
+handicapped by it.
+
+Ten tasks, MLP(256, 128), 10,000 examples per task, single-head
+(domain-incremental — no task id at test time), one seed:
+
+| condition | avg accuracy | forgetting | first task |
+|---|---:|---:|---:|
+| finetune | 0.428 | 0.505 | 0.115 |
+| ewc | 0.608 | 0.322 | 0.326 |
+| replay | 0.765 | 0.164 | 0.616 |
+| **athena** (replay + ewc + rollback) | **0.766** | 0.163 | 0.625 |
+| joint (upper bound) | 0.916 | — | 0.920 |
+
+Read honestly, that says three things.
+
+Catastrophic forgetting reproduces exactly as the literature describes it —
+plain fine-tuning leaves the first task at 0.115, near the 0.10 chance floor.
+The mechanisms do work: consolidation recovers 18 points, replay recovers 34.
+And **the combination is not better than replay alone** — 0.766 against 0.765.
+The consolidation term, the rollback gate and the checkpointing add nothing
+once replay is present. On this benchmark Athena is experience replay with
+extra machinery attached.
+
+Against published numbers it is not competitive: good methods report 0.95+ on
+Permuted-MNIST. Some of that gap is budget — a sixth of the training data, 500
+steps per task, a small MLP, a 200-sample buffer per skill — and some of it is
+real. The multi-head (task-incremental) variant is a much milder problem where
+every condition lands within a point of plain fine-tuning, which is worth
+knowing before quoting a number from it.
+
+The run also found two bugs that none of the bespoke benchmarks could:
+
+* Replay excluded the skill currently being trained. In a single-head setting
+  every task *is* that skill, so nothing was ever rehearsed and the replay
+  condition came out bit-for-bit identical to fine-tuning. Two conditions that
+  must differ being exactly equal is what exposed it.
+* A rounding floor of one sample per skill meant `replay_per_step=0` still
+  replayed, quietly lifting the supposed no-replay baseline by twenty points.
+
+Both are fixed. Numbers elsewhere in this file were measured before the fixes
+and are being re-verified.
+
+```
+python3 examples/permuted_mnist.py --data <dir with the four MNIST idx.gz files>
+```
+
 ## Scientific position
 
 Predictive processing is an influential computational theory, not a settled
