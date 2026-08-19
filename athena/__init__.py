@@ -2,6 +2,7 @@
 
 from .core import Athena, Config, StepReport
 from .precision import Precision, VolatilityTracker
+from .transfer import Example, ProgressiveRegistry, TransferConfig, TransferReport
 from .world import Regime, SwitchingWorld, linear_mse, persistence_mse, shifting_world, smooth_world, zero_mse
 
 __all__ = [
@@ -9,6 +10,10 @@ __all__ = [
     "Config",
     "StepReport",
     "Precision",
+    "ProgressiveRegistry",
+    "TransferConfig",
+    "TransferReport",
+    "Example",
     "VolatilityTracker",
     "Regime",
     "SwitchingWorld",

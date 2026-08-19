@@ -170,6 +170,66 @@ Two things worth recording, because they cost the most to find:
   one is destroyed by the very adaptation that makes the model look good in the
   moment.
 
+## Getting smarter, versus keeping a filing cabinet
+
+The goal for Athena is that it should *get better at learning* as it learns --
+meet a novel problem, work out what it doesn't know, learn the skill, keep it,
+and have the next problem be easier because of it. That last clause is the
+whole claim, and it is the one that per-skill accuracy reports cannot see: a
+system that genuinely compounds and a system that files each skill in a
+separate drawer produce identical scorecards.
+
+They differ on exactly one number. Measured on the v9 branch's own registries,
+learning two skills first changes the third skill's held-out accuracy by:
+
+```
+horizontal_order  +0.000000
+vertical_order    +0.000000
+far_apart         +0.000000
+```
+
+Not approximately zero. Bit-for-bit identical, in both the representation path
+and the neural-plasticity path. That is not a tuning problem, it is the
+architecture working as designed: every skill gets a freshly seeded network,
+and the shared representation is explicitly frozen while operators train
+(`"""Learn a reusable operator while keeping the representation frozen."""`).
+Forgetting measures 0.000000 too -- for the same reason. Isolation buys
+perfect retention by making transfer impossible.
+
+Stability and plasticity are not two features to build separately. They are the
+two ends of one tradeoff, and freezing sits at one extreme.
+
+`athena/transfer.py` takes the middle. Earlier experts stay bit-for-bit frozen,
+so retention remains exactly perfect and every promotion and rollback guarantee
+still holds -- but a *new* skill may read the internal features of the skills
+already learned. Old skills cannot be damaged because their weights are never
+written; new skills get cheaper because they start from what earlier skills
+worked out. This is progressive networks (Rusu et al., 2016), which was
+designed for this exact pair of requirements.
+
+On a curriculum where each task reuses the previous task's feature, 12 seeds,
+mean held-out accuracy:
+
+| training examples | task | isolated | lateral | gain |
+|---|---|---:|---:|---:|
+| 48 | `x0*x1 + x2 > 0` | 0.845 | 0.850 | +0.006 |
+| 48 | `x0*x1 + x2*x3 > 0` | 0.585 | 0.667 | **+0.082** |
+| 96 | `x0*x1 + x2 > 0` | 0.861 | 0.883 | +0.023 |
+| 96 | `x0*x1 + x2*x3 > 0` | 0.615 | 0.756 | **+0.141** |
+
+Forgetting across every seed and every configuration: **+0.000000**.
+
+Two honest costs. Transfer to a genuinely *unrelated* task is slightly negative
+(about −0.01), because the new skill has more inputs to overfit; the gain is
+not free, it is paid for by relatedness. And each expert's input grows with the
+number of skills it may read, so lateral sources are capped -- which bounds the
+cost but also bounds how far knowledge can compound. Neither is solved here.
+
+```
+python3 examples/transfer_benchmark.py
+python3 tests/test_transfer.py
+```
+
 ## What this is not
 
 * **Not AGI, and not a language model.** It predicts low-dimensional continuous
@@ -189,6 +249,7 @@ Two things worth recording, because they cost the most to find:
 | `athena/core.py` | the hierarchy, the loop, inference and learning |
 | `athena/precision.py` | inverse-variance weighting and volatility |
 | `athena/context.py` | the discrete gate over regimes |
+| `athena/transfer.py` | skills that make later skills cheaper |
 | `athena/world.py` | signal generators and the baselines |
 | `athena/plot.py` | terminal charts, so demos need nothing but NumPy |
 
