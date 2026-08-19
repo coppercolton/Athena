@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="color-scheme" content="dark">
-    <title>Athena — Growing Intelligence Lab</title>
+    <title>Athena — Continual Intelligence Lab</title>
     <link rel="stylesheet" href="/app.css">
     <script src="/app.js" defer></script>
   </head>
@@ -17,7 +17,7 @@
         <span class="brand-mark">A</span>
         <span>
           <strong>Athena</strong>
-          <small>Growing Intelligence Lab</small>
+          <small>Continual Intelligence Lab</small>
         </span>
       </a>
       <div class="topbar-meta">
@@ -29,13 +29,54 @@
     <main class="layout">
       <section class="workspace" aria-label="Agent workspace">
         <div class="hero">
-          <p class="eyebrow">LEARN BY PREDICTING</p>
-          <h1>Let Athena encounter the unknown.<br><span>Watch it acquire a skill.</span></h1>
+          <p class="eyebrow">LEARN THROUGH EXPERIENCE</p>
+          <h1>Give Athena unfamiliar tools.<br><span>Watch it learn a workflow.</span></h1>
           <p>
-            V0.5 adds verified capability growth: identify uncertainty, choose
-            experiments, induce an executable procedure, test it, retain it,
-            and transfer it to inputs never seen during learning.
+            V0.6 adds permissioned tool learning: inspect unknown operations,
+            predict before acting, verify the real result, compile successful
+            experience, and transfer it into a differently named workspace.
           </p>
+        </div>
+
+        <section class="skill-lab tool-agent-lab" aria-labelledby="tool-lab-title">
+          <div class="skill-lab-heading">
+            <div>
+              <p class="eyebrow">V0.6 · PERMISSIONED TOOL AGENT</p>
+              <h2 id="tool-lab-title">Enter an unfamiliar workspace</h2>
+              <p>
+                Every operation has an opaque name. Athena must read manuals,
+                choose safe calls, verify the goal, and prove its learned workflow
+                in two held-out worlds before permanent consolidation.
+              </p>
+            </div>
+          </div>
+          <form id="tool-learning-form" class="tool-learning-form">
+            <label>
+              Mission
+              <select name="kind">
+                <option value="store">Store and verify</option>
+                <option value="update">Update and verify</option>
+                <option value="delete">Delete and verify</option>
+              </select>
+            </label>
+            <label>
+              Record key
+              <input name="key" value="new-customer" required maxlength="120">
+            </label>
+            <label class="tool-value-field">
+              Record value
+              <input name="value" value="follow-up-booked" required maxlength="240">
+            </label>
+            <button class="primary-button" type="submit">Learn the workflow</button>
+          </form>
+          <div id="tool-learning-result" class="skill-trial-result empty-copy">
+            No mission yet. The sandbox permits reads and reversible writes only;
+            unregistered or external-write calls are rejected outside the reasoner.
+          </div>
+        </section>
+
+        <div class="section-divider">
+          <span>Foundational capability experiments</span>
         </div>
 
         <section class="skill-lab" aria-labelledby="skill-lab-title">
@@ -131,6 +172,14 @@
           </div>
           <span class="pulse" title="Learning state active"></span>
         </div>
+
+        <section class="state-section">
+          <div class="section-title">
+            <h3>Tool workflows</h3>
+            <span id="tool-skill-count">0</span>
+          </div>
+          <div id="tool-skill-list" class="state-list empty-copy">No tool workflows yet.</div>
+        </section>
 
         <section class="state-section">
           <div class="section-title">

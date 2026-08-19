@@ -15,10 +15,17 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from athena import AgentConfig  # noqa: E402
 from athena.foundation import (  # noqa: E402
     DemoFoundation,
+    FoundationError,
     FoundationRefusal,
     OpenAIResponsesFoundation,
+    OpenRouterChatFoundation,
 )
-from athena.playground import PlaygroundService, _is_loopback, make_server  # noqa: E402
+from athena.playground import (  # noqa: E402
+    PlaygroundService,
+    _foundation,
+    _is_loopback,
+    make_server,
+)
 
 
 class CapturingTransport:
@@ -47,6 +54,40 @@ class CapturingTransport:
                     ],
                 }
             ],
+        }
+
+
+class CapturingOpenRouterTransport:
+    def __init__(self, candidates=None, function_name="submit_candidates"):
+        self.calls = []
+        self.candidates = candidates or [
+            {"action": "inspect", "response": "Inspect the interface.", "prior": 0.8},
+            {"action": "test", "response": "Run a safe test.", "prior": 0.6},
+        ]
+        self.function_name = function_name
+
+    def __call__(self, url, headers, payload, timeout):
+        self.calls.append((url, headers, payload, timeout))
+        return {
+            "choices": [
+                {
+                    "message": {
+                        "role": "assistant",
+                        "tool_calls": [
+                            {
+                                "id": "call_test",
+                                "type": "function",
+                                "function": {
+                                    "name": self.function_name,
+                                    "arguments": json.dumps(
+                                        {"candidates": self.candidates}
+                                    ),
+                                },
+                            }
+                        ],
+                    }
+                }
+            ]
         }
 
 
@@ -103,6 +144,74 @@ def test_openai_adapter_exposes_refusal_as_a_typed_failure():
         assert "Cannot help" in str(exc)
         return
     raise AssertionError("foundation refusal was treated as a candidate response")
+
+
+def test_openrouter_adapter_uses_free_nemotron_tool_call_without_leaking_key():
+    transport = CapturingOpenRouterTransport()
+    foundation = OpenRouterChatFoundation(
+        api_key="secret-openrouter-key",
+        transport=transport,
+    )
+    candidates = foundation.propose(
+        "Learn a tool nobody has seen before",
+        memories=(),
+        facts=(),
+        strategies=(),
+        n=2,
+    )
+    assert [item.action for item in candidates] == ["inspect", "test"]
+    url, headers, payload, timeout = transport.calls[0]
+    assert url == "https://openrouter.ai/api/v1/chat/completions"
+    assert headers["Authorization"] == "Bearer secret-openrouter-key"
+    assert "secret-openrouter-key" not in json.dumps(payload)
+    assert payload["model"] == "nvidia/nemotron-3-ultra-550b-a55b:free"
+    assert "response_format" not in payload
+    assert payload["parallel_tool_calls"] is False
+    assert payload["tool_choice"]["function"]["name"] == "submit_candidates"
+    function = payload["tools"][0]["function"]
+    assert function["strict"] is True
+    assert function["parameters"]["additionalProperties"] is False
+    assert function["parameters"]["properties"]["candidates"]["minItems"] == 2
+    assert timeout == 120.0
+
+
+def test_openrouter_candidate_contract_is_validated_locally():
+    transport = CapturingOpenRouterTransport(
+        candidates=[{"action": "unsafe", "response": "Guess.", "prior": 1.5}]
+    )
+    foundation = OpenRouterChatFoundation(api_key="test", transport=transport)
+    try:
+        foundation.propose(
+            "request",
+            memories=(),
+            facts=(),
+            strategies=(),
+            n=1,
+        )
+    except FoundationError as exc:
+        assert "invalid candidate" in str(exc)
+        return
+    raise AssertionError("invalid OpenRouter candidate escaped local validation")
+
+
+def test_playground_auto_selects_openrouter_from_server_environment():
+    previous_openrouter = os.environ.get("OPENROUTER_API_KEY")
+    previous_openai = os.environ.get("OPENAI_API_KEY")
+    try:
+        os.environ["OPENROUTER_API_KEY"] = "test-openrouter"
+        os.environ["OPENAI_API_KEY"] = "test-openai"
+        foundation = _foundation("auto", None)
+        assert isinstance(foundation, OpenRouterChatFoundation)
+        assert foundation.model == "nvidia/nemotron-3-ultra-550b-a55b:free"
+    finally:
+        if previous_openrouter is None:
+            os.environ.pop("OPENROUTER_API_KEY", None)
+        else:
+            os.environ["OPENROUTER_API_KEY"] = previous_openrouter
+        if previous_openai is None:
+            os.environ.pop("OPENAI_API_KEY", None)
+        else:
+            os.environ["OPENAI_API_KEY"] = previous_openai
 
 
 def test_demo_foundation_is_immediately_usable_offline():
@@ -185,6 +294,42 @@ def test_service_discovers_persists_and_executes_a_verified_skill():
         assert isinstance(executed["output"], tuple)
 
 
+def test_service_learns_persists_and_transfers_an_unfamiliar_tool_workflow():
+    with tempfile.TemporaryDirectory() as directory:
+        state_path = Path(directory) / "state" / "athena.npz"
+        service = PlaygroundService(DemoFoundation(), state_path)
+        result = service.learn_tool_workflow(
+            {
+                "name": "store-workflow",
+                "kind": "store",
+                "key": "new-lead",
+                "value": "booked",
+                "seed": 123,
+            }
+        )
+        learning = result["learning"]
+        assert learning["acquisition"]["success"] is True
+        assert learning["consolidated"] is True
+        assert len(learning["validations"]) == 2
+        assert result["transfer"]["success"] is True
+        assert result["transfer"]["reasoner_steps"] == 0
+        assert result["state"]["tool_skill_count"] == 1
+        assert service.tool_skill_path.exists()
+
+        restored = PlaygroundService(DemoFoundation(), state_path)
+        assert restored.state()["tool_skills"][0]["name"] == "store-workflow"
+        replay = restored.run_tool_skill(
+            {
+                "name": "store-workflow",
+                "key": "restart-key",
+                "value": "restart-value",
+                "seed": 456,
+            }
+        )["run"]
+        assert replay["success"] is True
+        assert replay["reasoner_steps"] == 0
+
+
 def _json_request(url, path, payload=None):
     data = None if payload is None else json.dumps(payload).encode("utf-8")
     outgoing = request.Request(
@@ -232,10 +377,25 @@ def test_browser_api_runs_the_full_prediction_feedback_loop():
             assert learned["report"]["adapted"] is True
             assert learned["state"]["total_experiences"] == 1
 
+            _, _, tool_learning = _json_request(
+                url,
+                "/api/tools/learn",
+                {
+                    "name": "http-store-workflow",
+                    "kind": "store",
+                    "key": "http-key",
+                    "value": "http-value",
+                    "seed": 789,
+                },
+            )
+            assert tool_learning["learning"]["consolidated"] is True
+            assert tool_learning["transfer"]["success"] is True
+            assert tool_learning["state"]["tool_skill_count"] == 1
+
             with request.urlopen(f"{url}/", timeout=5) as response:
                 page = response.read().decode("utf-8")
-            assert "Growing Intelligence Lab" in page
-            assert "Learn an unrevealed rule" in page
+            assert "Continual Intelligence Lab" in page
+            assert "Enter an unfamiliar workspace" in page
         finally:
             server.shutdown()
             server.server_close()

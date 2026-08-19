@@ -246,6 +246,13 @@ textarea::placeholder {
   box-shadow: var(--shadow);
 }
 
+.tool-agent-lab {
+  border-color: rgba(167, 139, 250, 0.28);
+  background:
+    linear-gradient(135deg, rgba(124, 58, 237, 0.10), transparent 48%),
+    rgba(13, 19, 27, 0.94);
+}
+
 .skill-lab-heading {
   display: flex;
   gap: 24px;
@@ -372,6 +379,63 @@ textarea::placeholder {
   background: rgba(22, 101, 52, 0.08);
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 11px;
+}
+
+.tool-learning-form {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1.2fr auto;
+  gap: 10px;
+  align-items: end;
+  margin-top: 22px;
+  padding-top: 18px;
+  border-top: 1px solid var(--line);
+}
+
+.tool-learning-form label {
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.tool-learning-form input,
+.tool-learning-form select {
+  min-height: 42px;
+  margin-top: 7px;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: rgba(0, 0, 0, 0.16);
+  text-transform: none;
+}
+
+.tool-learning-form .primary-button {
+  min-height: 42px;
+  padding: 0 16px;
+  white-space: nowrap;
+}
+
+.tool-trace-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin: 16px 0 8px;
+  color: var(--muted);
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.permission-chip {
+  padding: 3px 6px;
+  border-radius: 6px;
+  color: var(--cyan);
+  background: rgba(20, 184, 166, 0.08);
+}
+
+.trace-error {
+  color: var(--red) !important;
 }
 
 .section-divider {
@@ -834,7 +898,8 @@ textarea::placeholder {
   }
 
   .trial-summary,
-  .skill-run-form {
+  .skill-run-form,
+  .tool-learning-form {
     grid-template-columns: 1fr;
   }
 
