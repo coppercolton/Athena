@@ -14,6 +14,8 @@ const plasticityLearningForm = document.querySelector("#plasticity-learning-form
 const plasticityLearningResult = document.querySelector("#plasticity-learning-result");
 const plasticityRunForm = document.querySelector("#plasticity-run-form");
 const plasticityRunOutput = document.querySelector("#plasticity-run-output");
+const representationLearningForm = document.querySelector("#representation-learning-form");
+const representationLearningResult = document.querySelector("#representation-learning-result");
 
 async function api(path, options = {}) {
   const response = await fetch(path, {
@@ -354,6 +356,110 @@ function renderPlasticityLearning(payload) {
   );
 }
 
+function renderGroundedRepresentation(representation, operators) {
+  const stateContainer = document.querySelector("#representation-state");
+  const operatorContainer = document.querySelector("#grounded-operator-list");
+  document.querySelector("#grounded-operator-count").textContent = operators.length;
+  stateContainer.replaceChildren();
+  operatorContainer.replaceChildren();
+  stateContainer.className = "state-list";
+  operatorContainer.className = "state-list";
+
+  if (!representation) {
+    stateContainer.classList.add("empty-copy");
+    stateContainer.textContent = "No latent state yet.";
+    operatorContainer.classList.add("empty-copy");
+    operatorContainer.textContent = "No grounded operators yet.";
+    return;
+  }
+
+  const representationCard = element("div", "state-item");
+  const representationTop = element("div", "state-item-top");
+  representationTop.append(element("strong", "", `${representation.sensor_dim} → ${representation.latent_dim} latent`));
+  representationTop.append(element("small", "status-preferred", `v${representation.version}`));
+  representationCard.append(representationTop);
+  representationCard.append(
+    element(
+      "p",
+      "",
+      `${representation.validation_loss.toFixed(4)} reconstruction loss · ${representation.checksum}`,
+    ),
+  );
+  stateContainer.append(representationCard);
+
+  if (!operators.length) {
+    operatorContainer.classList.add("empty-copy");
+    operatorContainer.textContent = "Representation learned; no grounded operators yet.";
+    return;
+  }
+  operators.forEach((item) => {
+    const card = element("div", "state-item");
+    const top = element("div", "state-item-top");
+    top.append(element("strong", "", item.name));
+    top.append(element("small", "status-preferred", `v${item.version}`));
+    card.append(top);
+    card.append(
+      element(
+        "p",
+        "",
+        `${percent(item.validation_accuracy)} verified · latent v${item.representation_version} · ${item.checksum}`,
+      ),
+    );
+    operatorContainer.append(card);
+  });
+}
+
+function renderRepresentationLearning(payload) {
+  const representation = payload.representation;
+  const operator = payload.operator_report;
+  const learned = payload.representation_report;
+  representationLearningResult.replaceChildren();
+  representationLearningResult.className = "skill-trial-result";
+  if (!operator) {
+    representationLearningResult.append(
+      element("div", "feedback-result", `Representation rolled back: ${learned.reason}.`),
+    );
+    return;
+  }
+
+  const summary = element("div", "trial-summary");
+  [
+    [`${representation.sensor_dim} → ${representation.latent_dim}`, "Raw → latent"],
+    [percent(operator.candidate_accuracy), "Held-out relation"],
+    [percent(operator.untrained_representation_accuracy), "Untrained encoder"],
+    [percent(payload.transfer.accuracy), "Sensor-shift transfer"],
+  ].forEach(([value, label]) => {
+    const metric = element("div", "trial-metric");
+    metric.append(element("strong", "", value));
+    metric.append(element("small", "", label));
+    summary.append(metric);
+  });
+  representationLearningResult.append(summary);
+
+  const log = element("div", "experiment-log");
+  [
+    ["representation", learned ? `${learned.before_loss.toFixed(4)} → ${learned.candidate_loss.toFixed(4)} reconstruction loss` : `reused latent v${representation.version}`],
+    ["operator", `${operator.training_examples} labelled experiences · ${operator.validation_examples} unseen cases`],
+    ["control", `${percent(operator.candidate_accuracy - operator.untrained_representation_accuracy)} learned-representation advantage`],
+    ["parameters", `${representation.checksum} · encoder frozen during operator learning: ${payload.representation_reused}`],
+  ].forEach(([label, value]) => {
+    const row = element("div");
+    row.append(element("span", "", label));
+    row.append(element("span", "", value));
+    log.append(row);
+  });
+  representationLearningResult.append(log);
+  representationLearningResult.append(
+    element(
+      "div",
+      "feedback-result",
+      operator.promoted
+        ? `Grounded operator v${operator.version}: ${operator.reason}.`
+        : `Operator rolled back: ${operator.reason}.`,
+    ),
+  );
+}
+
 function renderToolLearning(payload) {
   const learning = payload.learning;
   const acquisition = learning.acquisition;
@@ -464,6 +570,7 @@ function renderState(state) {
   renderSkills(state.skills || []);
   renderToolSkills(state.tool_skills || []);
   renderPlasticSkills(state.plastic_skills || []);
+  renderGroundedRepresentation(state.representation, state.grounded_operators || []);
 }
 
 function updateToolGoalFields() {
@@ -550,6 +657,28 @@ plasticityRunForm.addEventListener("submit", async (event) => {
     plasticityRunOutput.hidden = false;
   } catch (error) {
     showError(error);
+  }
+});
+
+representationLearningForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  clearError();
+  const submit = representationLearningForm.querySelector("button");
+  const data = new FormData(representationLearningForm);
+  submit.disabled = true;
+  submit.textContent = "Learning latent concepts…";
+  try {
+    const payload = await api("/api/representations/learn", {
+      method: "POST",
+      body: JSON.stringify({ rule: data.get("rule") }),
+    });
+    renderRepresentationLearning(payload);
+    renderState(payload.state);
+  } catch (error) {
+    showError(error);
+  } finally {
+    submit.disabled = false;
+    submit.textContent = "Learn another relation";
   }
 });
 

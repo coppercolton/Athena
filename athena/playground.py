@@ -31,6 +31,11 @@ from .foundation import (
     OpenRouterChatToolReasoner,
 )
 from .plasticity import ProtectedPlasticity, make_reasoning_cases
+from .representations import (
+    GroundedRepresentationSystem,
+    make_visual_cases,
+    make_visual_observations,
+)
 from .skills import NovelTaskLearner, SkillRegistry
 from .tool_learning import (
     DemoToolReasoner,
@@ -73,6 +78,9 @@ class PlaygroundService:
         self.plasticity_path = self.state_path.with_name(
             f"{self.state_path.stem}.plasticity.npz"
         )
+        self.representation_path = self.state_path.with_name(
+            f"{self.state_path.stem}.representations.npz"
+        )
         self._lock = threading.RLock()
         if self.state_path.exists():
             self.agent = AthenaAgent.load(self.state_path, foundation=foundation)
@@ -105,6 +113,11 @@ class PlaygroundService:
             if self.plasticity_path.exists()
             else ProtectedPlasticity()
         )
+        self.representations = (
+            GroundedRepresentationSystem.load(self.representation_path)
+            if self.representation_path.exists()
+            else GroundedRepresentationSystem()
+        )
 
     @property
     def backend_name(self) -> str:
@@ -124,6 +137,9 @@ class PlaygroundService:
 
     def _save_plasticity(self) -> None:
         self.plasticity.save(self.plasticity_path)
+
+    def _save_representations(self) -> None:
+        self.representations.save(self.representation_path)
 
     def decide(self, payload: dict[str, Any]) -> dict[str, object]:
         situation = str(payload.get("situation", ""))
@@ -271,6 +287,76 @@ class PlaygroundService:
                 "prediction": int(probability >= 0.5),
             }
 
+    def ground_visual_operator(self, payload: dict[str, Any]) -> dict[str, object]:
+        """Learn raw-pixel latents, then ground a reusable reasoning head."""
+
+        with self._lock:
+            rule = str(payload.get("rule", "horizontal_order"))
+            if rule not in ("horizontal_order", "vertical_order"):
+                raise ValueError("rule must be horizontal_order or vertical_order")
+            base = int(payload.get("seed", len(self.representations) * 10_000))
+            representation_report = None
+            try:
+                representation = self.representations.representation()
+            except RuntimeError:
+                representation_report = self.representations.learn_representation(
+                    make_visual_observations(1024, base + 1),
+                    make_visual_observations(256, base + 2),
+                )
+                if not representation_report.promoted:
+                    return {
+                        "representation_report": asdict(representation_report),
+                        "operator_report": None,
+                        "transfer": None,
+                        "state": self.state(),
+                    }
+                representation = self.representations.representation()
+
+            default_name = f"{rule.replace('_', '-')}-{len(self.representations) + 1}"
+            name = str(payload.get("name", default_name)).strip()
+            checksum_before_operator = representation.checksum
+            operator_report = self.representations.learn_operator(
+                name,
+                make_visual_cases(rule, 128, base + 10),
+                make_visual_cases(rule, 256, base + 11),
+            )
+            if representation_report is not None or operator_report.promoted:
+                self._save_representations()
+            transfer_accuracy = 0.0
+            if operator_report.promoted:
+                transfer_accuracy = self.representations.evaluate(
+                    name,
+                    make_visual_cases(
+                        rule,
+                        512,
+                        base + 12,
+                        noise=0.06,
+                        brightness=0.70,
+                    ),
+                )
+            return {
+                "rule": rule,
+                "representation_report": (
+                    None
+                    if representation_report is None
+                    else asdict(representation_report)
+                ),
+                "representation": asdict(self.representations.representation()),
+                "operator_report": asdict(operator_report),
+                "representation_reused": (
+                    self.representations.representation().checksum
+                    == checksum_before_operator
+                ),
+                "transfer": {
+                    "cases": 512,
+                    "noisier": True,
+                    "dimmer": True,
+                    "accuracy": transfer_accuracy,
+                    "passed": transfer_accuracy >= 0.90,
+                },
+                "state": self.state(),
+            }
+
     @staticmethod
     def _tool_goal(payload: dict[str, Any], *, prefix: str = "") -> ToolGoal:
         kind = str(payload.get(f"{prefix}kind", payload.get("kind", "store")))
@@ -393,6 +479,13 @@ class PlaygroundService:
                 for item in self.tool_agent.registry.all()
             ]
             plastic_skills = [asdict(item) for item in self.plasticity.all()]
+            grounded_operators = [
+                asdict(item) for item in self.representations.operators()
+            ]
+            try:
+                representation = asdict(self.representations.representation())
+            except RuntimeError:
+                representation = None
             return {
                 "backend": self.backend_name,
                 "state_path": str(self.state_path),
@@ -408,6 +501,9 @@ class PlaygroundService:
                 "tool_skill_count": len(tool_skills),
                 "plastic_skills": plastic_skills,
                 "plastic_skill_count": len(plastic_skills),
+                "representation": representation,
+                "grounded_operators": grounded_operators,
+                "grounded_operator_count": len(grounded_operators),
             }
 
 
@@ -419,7 +515,7 @@ def make_handler(service: PlaygroundService):
     """Create an isolated request-handler class bound to one service."""
 
     class Handler(BaseHTTPRequestHandler):
-        server_version = "AthenaPlayground/0.7"
+        server_version = "AthenaPlayground/0.8"
 
         def _json(self, value: object, status: HTTPStatus = HTTPStatus.OK) -> None:
             encoded = json.dumps(value, ensure_ascii=False).encode("utf-8")
@@ -483,6 +579,7 @@ def make_handler(service: PlaygroundService):
                     "/api/tools/run": service.run_tool_skill,
                     "/api/plasticity/learn": service.grow_neural_skill,
                     "/api/plasticity/run": service.run_neural_skill,
+                    "/api/representations/learn": service.ground_visual_operator,
                 }
                 if self.path not in routes:
                     self._json({"error": "not found"}, HTTPStatus.NOT_FOUND)
