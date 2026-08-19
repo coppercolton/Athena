@@ -25,9 +25,71 @@ mean error must improve monotonically or that every environment is predictable.
 It means its learning machinery remains plastic, bounded, inspectable,
 testable, and resumable while observations and consequences keep arriving.
 
-## What is new in v0.3
+## Try Athena as an agent — v0.4
 
-V0.3 adds `AthenaAgent`, the bridge between broad pretrained intelligence and
+V0.4 turns the experience architecture into a local browser agent you can use.
+It exposes the entire learning contract instead of hiding it behind a chat box:
+
+1. Give Athena a problem and a context.
+2. Athena retrieves related experiences and established knowledge.
+3. A foundation backend proposes candidate actions.
+4. Athena predicts success and chooses before seeing the outcome.
+5. Report whether the action worked and what happened.
+6. Watch its memories, contextual strategies, and confidence change.
+
+Launch the offline learning demo from the repository:
+
+```bash
+python3 -m athena.playground
+```
+
+Then open [http://127.0.0.1:8765](http://127.0.0.1:8765). The installed package
+also provides:
+
+```bash
+athena-playground
+```
+
+The demo backend is deterministic rather than a disguised language model. It
+lets you test Athena's post-deployment learning immediately without credentials
+or network access.
+
+### Connect broad foundation intelligence
+
+Set an API key in the server environment to let the same agent use an OpenAI
+foundation model. The browser never receives or stores the key.
+
+```bash
+export OPENAI_API_KEY="your-key"
+export OPENAI_MODEL="gpt-5.6"
+python3 -m athena.playground --foundation openai
+```
+
+The adapter uses the Responses API with strict Structured Outputs for candidate
+actions. You can select another compatible model through `OPENAI_MODEL` or
+`--model`. See the official [Structured Outputs documentation](https://developers.openai.com/api/docs/guides/structured-outputs).
+
+Learning state is checkpointed after every prediction, outcome, and factual
+update at `~/.athena/playground.npz` by default. Use `--state PATH` for another
+identity or experiment. Because live requests include the current task and
+retrieved learning context, do not place sensitive information in the agent
+unless it is appropriate to send to the configured model provider.
+
+### What the playground can and cannot do
+
+It can reason through a connected foundation model, learn which proposed
+actions work in different contexts, remember qualitative outcomes, accept
+source-labelled facts, revise strategies when the world changes, and resume the
+same learning state after restart.
+
+It deliberately does **not** execute arbitrary tools or external actions yet.
+The selected response is a proposed next action for the user. Autonomous tool
+execution requires permissions, a sandbox, action-specific verifiers, and
+rollback before trial-and-error learning can be made responsible.
+
+## What v0.3 established
+
+V0.3 added `AthenaAgent`, the bridge between broad pretrained intelligence and
 continual learning after deployment.
 
 ### Stable foundation, adaptive experience
@@ -288,30 +350,31 @@ Continuous updates alone are not enough. A credible forever learner needs:
 - explicit resource limits or memory will grow forever even if capability does
   not.
 
-Athena v0.3 implements early versions of these contracts across numeric streams
-and outcome-scored agent decisions. It does not yet solve representation
-learning, causal reasoning, autonomous goal formation, or safe
-self-modification. The provider-neutral interface can use a powerful foundation
-model, but the repository does not bundle or train one.
+Athena v0.4 implements early versions of these contracts across numeric streams
+and outcome-scored agent decisions, with a runnable interface and optional live
+foundation adapter. It does not yet solve representation learning, causal
+reasoning, autonomous goal formation, or safe self-modification. The repository
+does not bundle or train a foundation model.
 
 ## Next research milestones
 
-1. Connect `AthenaAgent` to an actual foundation-model adapter and a real,
-   outcome-producing environment rather than the deterministic demonstration.
-2. Evaluate behavioral improvement, calibration, forgetting, and resistance to
-   poisoned feedback over long deployments and multiple seeds.
-3. Connect the action-conditioned agent layer to the numeric world model so
-   imagined sensory consequences can inform candidate selection.
-4. Learn compact representations for images and audio instead of using only
-   low-dimensional vectors and deterministic text hashing.
-5. Add offline reflection that proposes reusable abstractions while keeping a
+1. Add permissioned tools, a sandbox, and action-specific verifiers so Athena
+   can safely try reversible steps instead of only proposing them.
+2. Learn and retain multi-step skills from instruction, demonstration,
+   correction, and trial rather than only contextual action values.
+3. Evaluate improvement, transfer, forgetting, and poisoned-feedback resistance
+   on procedurally novel tasks over long deployments and multiple seeds.
+4. Connect the agent layer to the numeric world model so imagined sensory
+   consequences can inform candidate selection.
+5. Add multimodal representations and offline reflection while keeping a
    protected evaluator responsible for promotion and rollback.
 
 ## Validation and layout
 
 ```bash
-python3 tests/test_athena.py          # 16 behavioral tests
+python3 tests/test_athena.py          # 16 numeric world-model tests
 python3 tests/test_agent.py           # 8 deployment-learning tests
+python3 tests/test_playground.py      # 6 browser/API/foundation tests
 python3 examples/experience_agent.py
 python3 examples/honest_benchmark.py
 python3 examples/continual_benchmark.py
@@ -323,13 +386,17 @@ python3 examples/precision.py
 | `athena/core.py` | hierarchy, recursive memory fusion, loop, checkpoints |
 | `athena/context.py` | Bayesian regime inference and protected recruitment |
 | `athena/agent.py` | foundation-model boundary, decisions, outcome learning |
+| `athena/foundation.py` | offline demo and structured live model adapter |
 | `athena/memory.py` | episodic retrieval and evidence-gated factual beliefs |
+| `athena/playground.py` | local server, persistent API, and launch command |
+| `athena/static/` | browser interface for tasks, outcomes, and memory |
 | `athena/baselines.py` | online RLS and its prequential contract |
 | `athena/precision.py` | uncertainty and volatility estimation |
 | `athena/world.py` | deterministic synthetic worlds and simple baselines |
 | `examples/` | reproducible stationary and continual benchmarks |
 | `tests/test_athena.py` | numeric behavioral claims and persistence contracts |
 | `tests/test_agent.py` | post-deployment adaptation, context, facts, checkpoints |
+| `tests/test_playground.py` | live adapter contract and end-to-end browser API |
 
 Requires Python 3.10+ and NumPy:
 

@@ -18,3 +18,4 @@ jobs:
       - run: python -m compileall -q athena examples tests
       - run: python tests/test_athena.py
       - run: python tests/test_agent.py
+      - run: python tests/test_playground.py

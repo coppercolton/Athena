@@ -13,6 +13,12 @@ from .agent import (
 )
 from .baselines import BaselineReport, OnlineRLS
 from .core import Athena, Config, StepReport
+from .foundation import (
+    DemoFoundation,
+    FoundationError,
+    FoundationRefusal,
+    OpenAIResponsesFoundation,
+)
 from .memory import Belief, BeliefStore, Episode, EpisodicMemory, HashingEncoder
 from .precision import Precision, VolatilityTracker
 from .world import (
@@ -38,6 +44,10 @@ __all__ = [
     "Decision",
     "OutcomeReport",
     "StrategyKnowledge",
+    "DemoFoundation",
+    "OpenAIResponsesFoundation",
+    "FoundationError",
+    "FoundationRefusal",
     "HashingEncoder",
     "Episode",
     "EpisodicMemory",
@@ -55,4 +65,4 @@ __all__ = [
     "linear_mse",
     "zero_mse",
 ]
-__version__ = "0.3.0"
+__version__ = "0.4.0"
