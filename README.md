@@ -1,15 +1,18 @@
 # Athena
 
 Athena is an experimental architecture for intelligence that keeps learning
-after deployment. It combines two complementary systems:
+after deployment. It combines three complementary systems:
 
 - a numeric continual world model that predicts the next observation and
   updates online; and
 - a provider-neutral agent layer that gives a stable pretrained foundation
   model episodic memory, evidence-gated facts, and behavior learned from the
-  consequences of its own decisions.
+  consequences of its own decisions; and
+- a verified procedural skill layer that identifies knowledge gaps, learns an
+  executable rule through instruction or active experimentation, tests it on
+  held-out cases, and retains it without rewriting earlier skills.
 
-There is no hidden batch-training step in either learning loop. Predictions are
+There is no hidden batch-training step in any learning loop. Predictions are
 recorded before outcomes arrive, experience is the data, and feedback changes
 future expectations without rewriting the foundation model after every event.
 
@@ -25,10 +28,20 @@ mean error must improve monotonically or that every environment is predictable.
 It means its learning machinery remains plastic, bounded, inspectable,
 testable, and resumable while observations and consequences keep arriving.
 
-## Try Athena as an agent — v0.4
+## Try Athena — v0.5
 
-V0.4 turns the experience architecture into a local browser agent you can use.
-It exposes the entire learning contract instead of hiding it behind a chat box:
+V0.5 exposes two different kinds of post-deployment learning in one local
+browser interface:
+
+- **Capability learning:** give Athena an unrevealed black-box sequence world.
+  It reports what it does not know, chooses experiments, induces a procedure,
+  verifies it independently, stores it, and runs it on inputs not seen during
+  discovery.
+- **Experience learning:** give the agent a real-world situation. It proposes an
+  action before the outcome exists, then updates contextual strategy evidence
+  from the measured result.
+
+The experience path is explicit rather than hidden behind a chat box:
 
 1. Give Athena a problem and a context.
 2. Athena retrieves related experiences and established knowledge.
@@ -50,9 +63,9 @@ also provides:
 athena-playground
 ```
 
-The demo backend is deterministic rather than a disguised language model. It
-lets you test Athena's post-deployment learning immediately without credentials
-or network access.
+The demo backend and skill world are deterministic rather than disguised
+language models. They let you test Athena's post-deployment learning immediately
+without credentials or network access.
 
 ### Connect broad foundation intelligence
 
@@ -69,23 +82,76 @@ The adapter uses the Responses API with strict Structured Outputs for candidate
 actions. You can select another compatible model through `OPENAI_MODEL` or
 `--model`. See the official [Structured Outputs documentation](https://developers.openai.com/api/docs/guides/structured-outputs).
 
-Learning state is checkpointed after every prediction, outcome, and factual
-update at `~/.athena/playground.npz` by default. Use `--state PATH` for another
+Experience state is checkpointed after every prediction, outcome, and factual
+update at `~/.athena/playground.npz` by default; verified skills are stored
+beside it in `~/.athena/playground.skills.json`. Use `--state PATH` for another
 identity or experiment. Because live requests include the current task and
 retrieved learning context, do not place sensitive information in the agent
 unless it is appropriate to send to the configured model provider.
 
 ### What the playground can and cannot do
 
-It can reason through a connected foundation model, learn which proposed
-actions work in different contexts, remember qualitative outcomes, accept
-source-labelled facts, revise strategies when the world changes, and resume the
-same learning state after restart.
+It can acquire and execute procedures in its constrained skill language, reason
+through a connected foundation model, learn which proposed actions work in
+different contexts, remember qualitative outcomes, accept source-labelled
+facts, revise strategies when the world changes, and resume both experience and
+skill state after restart.
 
 It deliberately does **not** execute arbitrary tools or external actions yet.
 The selected response is a proposed next action for the user. Autonomous tool
 execution requires permissions, a sandbox, action-specific verifiers, and
 rollback before trial-and-error learning can be made responsible.
+
+## What v0.5 established
+
+V0.5 distinguishes a durable capability from an episode or a success score. A
+procedural `Skill` contains an executable program, acquisition source, version,
+confidence, protected verification cases, and optional component skills.
+
+The first learning environment is deliberately narrow: transformations over
+token sequences inside an inspectable 11-primitive DSL. Athena begins with 78
+canonical one- and two-step hypotheses. It selects the probe with the greatest
+expected information gain, commits to the observation, eliminates contradicted
+hypotheses, and repeats until one program remains. The candidate cannot enter
+the registry until it passes inputs withheld from discovery.
+
+This is real program induction, but it is **not** evidence of general reasoning
+or a self-training foundation model. The finite task language makes the claim
+falsifiable and establishes infrastructure that broader future learners need:
+
+- an explicit epistemic state rather than invented certainty;
+- active experimentation instead of passive feedback alone;
+- independent verification rather than self-reported success;
+- executable transfer rather than retrieval of a similar example;
+- skill composition; and
+- a regression gate that rejects a replacement which breaks protected behavior.
+
+### Exhaustive constrained benchmark
+
+Every canonical program is hidden from a fresh learner. Discovery uses only
+letter probes; transfer uses numeric tokens not present during discovery. All 78
+skills are then retained in one registry and rechecked after sequential learning.
+
+| measure | result |
+|---|---:|
+| programs induced and verified | **78 / 78** |
+| mean active experiments | **1.37** |
+| maximum active experiments | **3** |
+| held-out verification cases | **468 / 468** |
+| novel-token transfer cases | **78 / 78** |
+| first-to-last sequential retention | **78 / 78** |
+
+Run the full benchmark with:
+
+```bash
+python3 examples/skill_benchmark.py
+```
+
+## What v0.4 established
+
+V0.4 turned the experience architecture into a runnable local browser agent,
+added the offline and live foundation adapters, and checkpointed every decision,
+outcome, and factual update.
 
 ## What v0.3 established
 
@@ -350,23 +416,28 @@ Continuous updates alone are not enough. A credible forever learner needs:
 - explicit resource limits or memory will grow forever even if capability does
   not.
 
-Athena v0.4 implements early versions of these contracts across numeric streams
-and outcome-scored agent decisions, with a runnable interface and optional live
-foundation adapter. It does not yet solve representation learning, causal
-reasoning, autonomous goal formation, or safe self-modification. The repository
-does not bundle or train a foundation model.
+Athena v0.5 implements early versions of these contracts across numeric streams,
+outcome-scored agent decisions, and constrained executable skills, with a
+runnable interface and optional live foundation adapter. It does not yet learn
+an open-ended representation space, improve the neural foundation's weights,
+perform broad causal reasoning, form autonomous goals, or safely self-modify.
+The repository does not bundle or train a foundation model.
 
 ## Next research milestones
 
-1. Add permissioned tools, a sandbox, and action-specific verifiers so Athena
-   can safely try reversible steps instead of only proposing them.
-2. Learn and retain multi-step skills from instruction, demonstration,
-   correction, and trial rather than only contextual action values.
-3. Evaluate improvement, transfer, forgetting, and poisoned-feedback resistance
+1. Expand skill induction beyond the fixed sequence DSL into procedurally novel
+   tool environments while keeping independent, task-specific verifiers.
+2. Add permissioned tools and a sandbox so Athena can safely try reversible
+   steps instead of only proposing them.
+3. Learn representations and reusable reasoning operators from instruction,
+   demonstration, correction, and trial—not only select existing primitives.
+4. Evaluate improvement, transfer, forgetting, and poisoned-feedback resistance
    on procedurally novel tasks over long deployments and multiple seeds.
-4. Connect the agent layer to the numeric world model so imagined sensory
+5. Connect the agent layer to the numeric world model so imagined sensory
    consequences can inform candidate selection.
-5. Add multimodal representations and offline reflection while keeping a
+6. Add expandable neural adapters or expert modules only behind evaluation,
+   regression, checkpoint, and rollback gates.
+7. Add multimodal representations and offline reflection while keeping a
    protected evaluator responsible for promotion and rollback.
 
 ## Validation and layout
@@ -374,7 +445,10 @@ does not bundle or train a foundation model.
 ```bash
 python3 tests/test_athena.py          # 16 numeric world-model tests
 python3 tests/test_agent.py           # 8 deployment-learning tests
-python3 tests/test_playground.py      # 6 browser/API/foundation tests
+python3 tests/test_skills.py          # 7 skill acquisition/retention tests
+python3 tests/test_playground.py      # 7 browser/API/foundation tests
+python3 examples/novel_skill_learning.py
+python3 examples/skill_benchmark.py
 python3 examples/experience_agent.py
 python3 examples/honest_benchmark.py
 python3 examples/continual_benchmark.py
@@ -388,6 +462,7 @@ python3 examples/precision.py
 | `athena/agent.py` | foundation-model boundary, decisions, outcome learning |
 | `athena/foundation.py` | offline demo and structured live model adapter |
 | `athena/memory.py` | episodic retrieval and evidence-gated factual beliefs |
+| `athena/skills.py` | knowledge gaps, active induction, verification, skill registry |
 | `athena/playground.py` | local server, persistent API, and launch command |
 | `athena/static/` | browser interface for tasks, outcomes, and memory |
 | `athena/baselines.py` | online RLS and its prequential contract |
@@ -396,6 +471,7 @@ python3 examples/precision.py
 | `examples/` | reproducible stationary and continual benchmarks |
 | `tests/test_athena.py` | numeric behavioral claims and persistence contracts |
 | `tests/test_agent.py` | post-deployment adaptation, context, facts, checkpoints |
+| `tests/test_skills.py` | induction, instruction, transfer, composition, regression |
 | `tests/test_playground.py` | live adapter contract and end-to-end browser API |
 
 Requires Python 3.10+ and NumPy:

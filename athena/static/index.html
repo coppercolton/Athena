@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="color-scheme" content="dark">
-    <title>Athena — Continual Agent Lab</title>
+    <title>Athena — Growing Intelligence Lab</title>
     <link rel="stylesheet" href="/app.css">
     <script src="/app.js" defer></script>
   </head>
@@ -17,7 +17,7 @@
         <span class="brand-mark">A</span>
         <span>
           <strong>Athena</strong>
-          <small>Continual Agent Lab</small>
+          <small>Growing Intelligence Lab</small>
         </span>
       </a>
       <div class="topbar-meta">
@@ -30,11 +30,44 @@
       <section class="workspace" aria-label="Agent workspace">
         <div class="hero">
           <p class="eyebrow">LEARN BY PREDICTING</p>
-          <h1>Give Athena a problem.<br><span>Teach it what happens.</span></h1>
+          <h1>Let Athena encounter the unknown.<br><span>Watch it acquire a skill.</span></h1>
           <p>
-            Athena proposes an action before seeing the outcome. Your feedback
-            becomes experience that changes what it does next.
+            V0.5 adds verified capability growth: identify uncertainty, choose
+            experiments, induce an executable procedure, test it, retain it,
+            and transfer it to inputs never seen during learning.
           </p>
+        </div>
+
+        <section class="skill-lab" aria-labelledby="skill-lab-title">
+          <div class="skill-lab-heading">
+            <div>
+              <p class="eyebrow">NOVEL CAPABILITY TRIAL</p>
+              <h2 id="skill-lab-title">Learn an unrevealed rule</h2>
+              <p>
+                A black-box world applies a procedure Athena has never observed.
+                Athena starts with many hypotheses and chooses its own test inputs.
+              </p>
+            </div>
+            <button id="discover-skill-button" class="primary-button" type="button">
+              Run learning trial
+            </button>
+          </div>
+          <div id="skill-trial-result" class="skill-trial-result empty-copy">
+            No trial yet. This is a constrained sequence world so successful
+            learning can be independently verified—not judged by Athena itself.
+          </div>
+          <form id="skill-run-form" class="skill-run-form" hidden>
+            <label for="skill-select">Retained skill</label>
+            <select id="skill-select" name="name"></select>
+            <label for="skill-input">Try unfamiliar input (JSON array)</label>
+            <input id="skill-input" name="input" value='["new", "tokens", "for", "transfer"]' required>
+            <button type="submit">Execute retained skill</button>
+          </form>
+          <output id="skill-run-output" class="skill-run-output" hidden></output>
+        </section>
+
+        <div class="section-divider">
+          <span>Experience-based action learning</span>
         </div>
 
         <form id="task-form" class="task-composer">
@@ -98,6 +131,14 @@
           </div>
           <span class="pulse" title="Learning state active"></span>
         </div>
+
+        <section class="state-section">
+          <div class="section-title">
+            <h3>Verified skills</h3>
+            <span id="skill-count">0</span>
+          </div>
+          <div id="skill-list" class="state-list empty-copy">No procedural skills yet.</div>
+        </section>
 
         <section class="state-section">
           <div class="section-title">
