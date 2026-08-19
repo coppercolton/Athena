@@ -76,8 +76,33 @@ post-deployment learning immediately without credentials or network access.
 
 ### Connect broad foundation intelligence
 
-Set an API key in the server environment to let the same agent use an OpenAI
+Set an API key in the server environment to let the same agent use a hosted
 foundation model. The browser never receives or stores the key.
+
+For the current free OpenRouter test model:
+
+```bash
+export OPENROUTER_API_KEY="your-key"
+export OPENROUTER_MODEL="nvidia/nemotron-3-ultra-550b-a55b:free"
+python3 -m athena.playground --foundation openrouter
+```
+
+The OpenRouter adapter uses Chat Completions function tools for candidate and
+unfamiliar-tool decisions. The requested free Nemotron endpoint supports tool
+calling but not enforced `response_format`, so Athena validates the tool name,
+exact argument set, argument types, predictive fields, and confidence again
+locally before its permission policy can execute anything. `--foundation auto`
+selects OpenRouter when `OPENROUTER_API_KEY` is present. You can change models
+with `OPENROUTER_MODEL` or `--model`. See OpenRouter's official
+[model page](https://openrouter.ai/nvidia/nemotron-3-ultra-550b-a55b%3Afree),
+[API reference](https://openrouter.ai/docs/api_reference/overview), and
+[tool-calling guide](https://openrouter.ai/docs/guides/features/tool-calling).
+
+Do not send secrets, personal data, or confidential material to the free
+endpoint. Its model page says free-endpoint use is logged for security and
+NVIDIA product improvement.
+
+For OpenAI:
 
 ```bash
 export OPENAI_API_KEY="your-key"
@@ -85,11 +110,11 @@ export OPENAI_MODEL="gpt-5.6"
 python3 -m athena.playground --foundation openai
 ```
 
-The live adapter uses the Responses API with strict Structured Outputs for
+The OpenAI adapter uses the Responses API with strict Structured Outputs for
 candidate actions and strict function tools for unfamiliar-tool decisions. The
-permission policy still runs locally after the model selects a call. You can
-select another compatible model through `OPENAI_MODEL` or `--model`. See the
-official [Structured Outputs](https://developers.openai.com/api/docs/guides/structured-outputs)
+permission policy still runs locally after either provider selects a call. You
+can select another compatible OpenAI model through `OPENAI_MODEL` or `--model`.
+See the official [Structured Outputs](https://developers.openai.com/api/docs/guides/structured-outputs)
 and [function calling](https://developers.openai.com/api/docs/guides/function-calling)
 documentation.
 
@@ -522,8 +547,8 @@ The repository does not bundle or train a foundation model.
 python3 tests/test_athena.py          # 16 numeric world-model tests
 python3 tests/test_agent.py           # 8 deployment-learning tests
 python3 tests/test_skills.py          # 7 skill acquisition/retention tests
-python3 tests/test_tool_learning.py   # 12 tool, transfer, policy, rollback tests
-python3 tests/test_playground.py      # 8 browser/API/foundation tests
+python3 tests/test_tool_learning.py   # 15 tool, transfer, policy, rollback tests
+python3 tests/test_playground.py      # 11 browser/API/foundation tests
 python3 examples/tool_learning_agent.py
 python3 examples/tool_agent_benchmark.py
 python3 examples/novel_skill_learning.py
@@ -539,7 +564,7 @@ python3 examples/precision.py
 | `athena/core.py` | hierarchy, recursive memory fusion, loop, checkpoints |
 | `athena/context.py` | Bayesian regime inference and protected recruitment |
 | `athena/agent.py` | foundation-model boundary, decisions, outcome learning |
-| `athena/foundation.py` | offline demo and structured live model adapter |
+| `athena/foundation.py` | offline demo, OpenAI, and OpenRouter model adapters |
 | `athena/memory.py` | episodic retrieval and evidence-gated factual beliefs |
 | `athena/skills.py` | knowledge gaps, active induction, verification, skill registry |
 | `athena/tool_learning.py` | permission policy, unfamiliar tools, workflow compilation |

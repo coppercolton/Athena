@@ -19,6 +19,8 @@ from .foundation import (
     FoundationRefusal,
     OpenAIResponsesFoundation,
     OpenAIResponsesToolReasoner,
+    OpenRouterChatFoundation,
+    OpenRouterChatToolReasoner,
 )
 from .memory import Belief, BeliefStore, Episode, EpisodicMemory, HashingEncoder
 from .precision import Precision, VolatilityTracker
@@ -83,6 +85,8 @@ __all__ = [
     "DemoFoundation",
     "OpenAIResponsesFoundation",
     "OpenAIResponsesToolReasoner",
+    "OpenRouterChatFoundation",
+    "OpenRouterChatToolReasoner",
     "FoundationError",
     "FoundationRefusal",
     "HashingEncoder",

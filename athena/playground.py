@@ -27,6 +27,8 @@ from .foundation import (
     FoundationError,
     OpenAIResponsesFoundation,
     OpenAIResponsesToolReasoner,
+    OpenRouterChatFoundation,
+    OpenRouterChatToolReasoner,
 )
 from .skills import NovelTaskLearner, SkillRegistry
 from .tool_learning import (
@@ -84,11 +86,12 @@ class PlaygroundService:
             else ToolSkillRegistry()
         )
         if tool_reasoner is None:
-            tool_reasoner = (
-                OpenAIResponsesToolReasoner.from_foundation(foundation)
-                if isinstance(foundation, OpenAIResponsesFoundation)
-                else DemoToolReasoner()
-            )
+            if isinstance(foundation, OpenAIResponsesFoundation):
+                tool_reasoner = OpenAIResponsesToolReasoner.from_foundation(foundation)
+            elif isinstance(foundation, OpenRouterChatFoundation):
+                tool_reasoner = OpenRouterChatToolReasoner.from_foundation(foundation)
+            else:
+                tool_reasoner = DemoToolReasoner()
         self.tool_agent = ToolLearningAgent(
             reasoner=tool_reasoner,
             registry=tool_registry,
@@ -455,6 +458,10 @@ def _foundation(kind: str, model: str | None):
         return DemoFoundation()
     if kind == "openai":
         return OpenAIResponsesFoundation.from_env(model=model)
+    if kind == "openrouter":
+        return OpenRouterChatFoundation.from_env(model=model)
+    if os.getenv("OPENROUTER_API_KEY"):
+        return OpenRouterChatFoundation.from_env(model=model)
     if os.getenv("OPENAI_API_KEY"):
         return OpenAIResponsesFoundation.from_env(model=model)
     return DemoFoundation()
@@ -471,10 +478,13 @@ def main(argv: list[str] | None = None) -> None:
     )
     parser.add_argument(
         "--foundation",
-        choices=("auto", "demo", "openai"),
+        choices=("auto", "demo", "openai", "openrouter"),
         default="auto",
     )
-    parser.add_argument("--model", help="OpenAI model (or OPENAI_MODEL)")
+    parser.add_argument(
+        "--model",
+        help="provider model (or OPENROUTER_MODEL / OPENAI_MODEL)",
+    )
     parser.add_argument("--no-browser", action="store_true")
     parser.add_argument(
         "--allow-network",
