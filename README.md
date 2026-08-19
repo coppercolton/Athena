@@ -1,195 +1,232 @@
 # Athena
 
-An AI that learns the way the idea describes: it predicts what it is about to
-see, looks, and corrects itself — forever, with no training phase.
+Athena is an experimental continual world model: it predicts the next thing it
+will observe, receives reality, measures the error, and updates itself online.
+There is no separate batch-training run. The observation stream *is* the data,
+and every reported error is made before the corresponding observation arrives.
 
-```
-        ┌─────────────┐   prediction   ┌──────────────┐
-        │  the model  │ ─────────────► │  what is     │
-        │  (beliefs)  │ ◄───────────── │  actually    │
-        └─────────────┘  error signal  │  there       │
-              ▲                        └──────────────┘
-              └── every error, immediately, adjusts the beliefs
-                  that produced it, and the weights behind them
+```text
+predict -> observe -> measure surprise -> infer context -> update -> predict
+   ^                                                               |
+   +---------------------------------------------------------------+
 ```
 
-Every timestep, Athena produces an expectation of the next observation *before*
-that observation arrives. When it arrives, the difference between expectation
-and reality is the only learning signal the system uses. There is no dataset,
-no training run, no separate inference mode. It gets better for exactly as long
-as you leave it running.
+The long-term goal is a model that can keep learning without periodically being
+discarded and retrained. That does **not** mean error must improve monotonically
+or that every environment is predictable. It means the machinery remains
+plastic, calibrated, testable, and resumable for as long as observations keep
+arriving.
 
-## Where the idea comes from
-
-This is a real theory of how brains work, not a metaphor. It is called
-**predictive processing** (or predictive coding), and the load-bearing papers
-are Rao & Ballard (1999), which introduced hierarchical predictive coding in
-visual cortex, and Karl Friston's free-energy work, which recast perception,
-learning and action as one quantity being minimised. Andy Clark's *Surfing
-Uncertainty* is the readable book-length version.
-
-The idea has been picked up in machine learning too — world models, JEPA, and
-essentially every self-supervised next-step predictor are relatives. So the
-intuition is a good one, and it is not an unexplored one. What this repository
-is: a small, complete, honest implementation you can read in an afternoon and
-run in a terminal, with the measurements to say what it does and does not do.
-
-## The loop
+## Quick start
 
 ```python
 from athena import Athena, Config
 
-model = Athena(Config(sizes=[4, 24, 12]))   # 4 sensors, two latent levels
+model = Athena(Config(sizes=[4, 24, 12]))
 
 for observation in stream:
-    guess  = model.predict()          # before looking
-    report = model.observe(observation)  # look, compare, settle, learn
-    print(report.mse, report.surprise, report.gain)
+    prediction = model.predict()          # cannot see observation yet
+    report = model.observe(observation)   # compare, infer, and learn once
+    print(report.mse, report.nll, report.surprise)
+
+model.save("athena.npz")
+model = Athena.load("athena.npz")        # exact next prediction is preserved
 ```
 
-Four things happen per timestep:
+For a frozen holdout, dynamic beliefs still follow the sequence while all
+long-term learning stays fixed:
 
-1. **Predict.** Beliefs roll forward in time, then generate downward through
-   the hierarchy to the senses. The bottom of that cascade is a prediction of
-   the next observation.
-2. **Compare.** The observation arrives. The difference is a prediction error.
-3. **Settle.** The latent beliefs relax until they explain what actually
-   happened. This is perception, and no weights change during it.
-4. **Learn.** The settled errors nudge the weights. Every update is local to a
-   pair of adjacent levels — no backpropagation through time, no replay buffer.
-
-## What makes it keep improving instead of drifting
-
-Four mechanisms, each of which was added because the model failed without it.
-
-**Precision.** An error on a channel that is normally reliable means something;
-the same error on a channel that is always noisy does not. Each unit tracks the
-inverse variance of its own error history and errors are weighted by it. The
-subtlety: precision is used for the *relative* weighting only, renormalised to
-mean 1. Raw precision rises as the model improves, so feeding it into the
-update rule multiplies the learning rate by a growing number until it
-oscillates — a model that becomes confident becomes unstable.
-
-**Volatility.** When errors run persistently larger than their own recent
-history, the world has probably changed and the model should learn faster
-rather than average the change away. A fast/slow surprise ratio drives a
-learning-rate multiplier. `StepReport.gain` exposes it; it spikes at every
-regime change.
-
-**Evidence-scaled steps.** A model that runs forever cannot keep a fixed
-learning rate: constant step size means constant gradient noise, so parameters
-random-walk around the solution and predictions decay back toward mediocre.
-Each observation accumulates evidence and shrinks the step; each surprise
-discounts that evidence and re-opens learning. The floor matters as much as the
-decay — a model that has stopped learning cannot notice it should start again.
-
-**Generalized coordinates.** The sensory level holds each reading *and its rate
-of change*. Position alone does not determine the next position; you need
-velocity, and a one-step local learning rule gives the latents almost no
-pressure to invent one. This is the standard move in the free-energy literature
-and it is the single change that took the model from "worse than trivial" to
-"much better than trivial".
-
-## Results
-
-Four channels of unrelated sinusoids, one observation at a time, measured as
-mean squared error on the next observation. Two baselines, because a predictive
-model on a smooth signal looks impressive against nothing at all:
-
-* **persistence** — predict the last value. Strong on smooth data.
-* **linear** — constant-velocity extrapolation. This is the honest bar: the
-  model is *handed* velocity as an input, so this prediction is available to it
-  for free. Beating persistence proves nothing. Beating this means it has
-  learned something about the signal.
-
-| steps | persistence | linear | Athena |
-|------:|------------:|-------:|-------:|
-| 0–2.5k | 4.8e-03 | 8.8e-05 | 4.4e-03 |
-| 2.5k–5k | 4.8e-03 | 8.8e-05 | 1.2e-03 |
-| 5k–7.5k | 4.8e-03 | 8.8e-05 | 5.4e-05 |
-| 10k–12.5k | 4.8e-03 | 8.8e-05 | 1.2e-05 |
-| 17.5k–20k | 4.8e-03 | 8.8e-05 | **6.5e-06** |
-
-It starts no better than doing nothing, crosses persistence, crosses linear
-extrapolation, and is still improving at 20,000 observations — 740x better than
-persistence and 13x better than linear, with no sign of a floor. That last
-column is the claim the whole idea rests on.
-
-```
-python3 examples/learning_curve.py    # the table above, with plots
-python3 examples/regime_shift.py      # what happens when the world changes
-python3 examples/precision.py         # learning which channels to believe
-python3 tests/test_athena.py          # the behavioural tests
+```python
+for observation in holdout:
+    report = model.observe(observation, learn=False)
 ```
 
-## When the world changes
+## What is new in v0.2
 
-A single set of weights can only hold one story. When the dynamics switch, it
-does the only thing it can — slowly overwrite what it knew — and if the old
-world ever comes back, it has to learn it again from nothing. Learning fast
-makes this *worse*, not better: a quick learner thrashes.
+The original prototype showed that a predictive-coding hierarchy could improve
+online on smooth synthetic signals. V0.2 makes the claim harder to fool and
+adds a second timescale for retained dynamics.
 
-So the model holds a *bank* of transition operators with a Bayesian gate
-deciding which is currently active, recruiting a fresh one when nothing known
-explains the input. Three regimes rotating every 1000 steps, error averaged over
-the last four dwells, by position within a dwell:
+### A recursive sensory-dynamics bank
 
-| steps after a switch | `experts=1` | `experts=6` (default) |
-|---------------------:|------------:|----------------------:|
-| 0–100 | 2.2e-02 | 1.0e-02 |
-| 200–300 | 3.8e-03 | **4.8e-06** |
-| 400–500 | 1.2e-03 | 5.0e-06 |
-| 800–900 | 6.3e-05 | 5.0e-06 |
+A local linear recurrence should be remembered as a law, not continuously
+repainted into a general neural hierarchy. Each context therefore owns a
+recursive least-squares dynamics memory. It can retain simple local laws exactly
+and update them online with fractional responsibility from the context gate.
 
-The banked model is back under 1e-05 within 200 observations of every change
-and stays there, because it is *recognising* a regime rather than relearning
-it. The single-operator model spends most of each dwell climbing back, and
-never gets as far down before the world moves again.
+The predictive-coding hierarchy runs beside it and learns nonlinear residuals,
+slower structure, and context. Their forecasts are fused by measured forecast
+precision. There is no fixed mixing weight.
 
-The bank is not free, and the cost is worth stating plainly: for the first
-several regime cycles it is slightly *worse* than the single model, because it
-is still working out how many worlds there are and each expert is learning from
-only its share of the data. It pulls ahead after about six dwells and the gap
-widens from there. Averaged over a whole run: 4.0e-03 for `experts=1` against
-1.1e-03 for `experts=6`. On a world that never changes, the bank costs nothing
-measurable and recruits nobody.
+### Honest evaluation contracts
 
-Two things worth recording, because they cost the most to find:
+- **Prequential scoring:** predict first, reveal one point, then update once.
+- **Frozen evaluation:** `learn=False` cannot change weights, precision,
+  volatility, evidence, context-transition statistics, or dynamics parameters.
+- **Strong baselines:** online RLS is included because an AR(2) model solves a
+  noiseless sinusoid almost exactly.
+- **Calibrated scores:** next-observation NLL uses forecast precision, and the
+  hierarchy's Gaussian energy includes the log-precision normalization term.
+- **Behavioral tests:** returning-regime memory must beat a single model that
+  overwrites itself; merely producing a valid context distribution is not
+  enough.
+- **Resumable learning:** checkpoints include fast beliefs, slow weights,
+  uncertainty, context memory, histories, and random-generator state.
 
-* Handing the model a **perfect oracle** telling it which regime is active did
-  not help. If a mechanism does not beat its own oracle, the bottleneck is
-  somewhere else, and no amount of tuning the mechanism will find it. That
-  measurement is what redirected attention to the sensory representation, which
-  is where the actual problem was.
-* At the instant a regime changes, *every* expert looks wrong — including the
-  one that holds the incoming regime, because the continuous state beneath it
-  still carries the outgoing regime's phase. "A world I have never seen" and "a
-  world I know, caught mid-turn" are the same picture until you wait. So the
-  gate freezes learning during a probation window. Without that freeze the
-  incumbent expert relearns the new regime in place, and the memory of the old
-  one is destroyed by the very adaptation that makes the model look good in the
-  moment.
+## Architecture
 
-## What this is not
+Athena combines five mechanisms:
 
-* **Not AGI, and not a language model.** It predicts low-dimensional continuous
-  streams. Scaling this shape of model to rich sensory data is exactly the open
-  research problem, not something this repository has solved.
-* **Not novel research.** The mechanisms are from the literature cited above.
-  What is here is a working, measured, readable implementation.
-* **Not tested beyond synthetic signals.** Every number above comes from
-  sinusoid mixtures. Real data is noisier, higher-dimensional, and less kind.
-* **Not fast.** Pure NumPy, one timestep at a time, ~5 ms per step at these
-  sizes. It is written to be read.
+1. **Predictive-coding hierarchy.** Each level predicts the level below and its
+   own next state. Latent beliefs settle against precision-weighted local errors
+   before weights change.
+2. **Recursive dynamics memories.** Each context has an online RLS recurrence
+   for stable, locally linear sensory laws.
+3. **Bayesian context gate.** A bank of experts prevents every new regime from
+   overwriting the previous one. Learning pauses during change-point probation,
+   then the gate recalls an existing expert or recruits unused capacity.
+4. **Forecast calibration.** Independent precision estimates decide how much to
+   trust the hierarchy and recursive dynamics on each channel.
+5. **Volatility and evidence.** Persistent surprise reopens learning; accumulated
+   evidence gradually reduces parameter noise without driving plasticity to
+   zero.
 
-## Layout
+Generalized coordinates at the sensory level include recent velocity. That is a
+hand-designed inductive bias, not an emergent discovery, and the benchmarks say
+so explicitly.
 
-| file | what it holds |
-|------|---------------|
-| `athena/core.py` | the hierarchy, the loop, inference and learning |
-| `athena/precision.py` | inverse-variance weighting and volatility |
-| `athena/context.py` | the discrete gate over regimes |
-| `athena/world.py` | signal generators and the baselines |
-| `athena/plot.py` | terminal charts, so demos need nothing but NumPy |
+## Measured results
 
-Requires Python 3.10+ and NumPy. `pip install -r requirements.txt`.
+### Frozen stationary prediction
+
+Four unrelated noiseless sinusoids. Models learn on steps 0–4,999, then all
+long-term adaptation is frozen for steps 5,000–5,999.
+
+| model | frozen MSE |
+|---|---:|
+| persistence | 4.802e-03 |
+| constant velocity | 7.248e-05 |
+| Athena v0.2 | **3.270e-09** |
+| online RLS(2) | 1.715e-10 |
+
+Athena retains the learned signal and is about 22,000x better than constant
+velocity in the frozen window. It does not beat RLS on an exact AR(2) world and
+should not: RLS is the smaller model matched perfectly to that generator. The
+hierarchy has no extra structure to contribute there.
+
+Run it with:
+
+```bash
+python3 examples/honest_benchmark.py
+```
+
+### Returning regimes
+
+Three unrelated regimes rotate every 500 observations. Errors below are
+averaged over the last six dwells while all models continue learning online.
+
+| model | first 100 after switch | settled remainder |
+|---|---:|---:|
+| Athena, six context memories | **8.570e-03** | **4.139e-05** |
+| Athena, one memory | 9.259e-03 | 9.450e-05 |
+| stationary RLS | 8.863e-03 | 1.833e-04 |
+| adaptive RLS, forgetting=0.995 | 1.020e-02 | 7.886e-05 |
+
+Here the context bank adds value beyond the RLS component: it can retrieve a
+previous law instead of compromising all regimes into one or forgetting the old
+one to learn the new one.
+
+```bash
+python3 examples/continual_benchmark.py
+```
+
+These are deterministic synthetic experiments, not evidence of general
+intelligence. They establish two narrower properties: retained prediction when
+learning is frozen, and reduced interference when known dynamics return.
+
+## The learning loop
+
+For each observation Athena:
+
+1. rolls every hierarchy level forward and generates a top-down forecast;
+2. asks each recursive context memory for its forecast;
+3. fuses predictions using reliability measured on prior forecasts;
+4. scores the unseen observation with MSE, calibrated surprise, and NLL;
+5. infers which context most likely generated it;
+6. settles latent beliefs without changing weights;
+7. updates only the responsible local weights and recursive memory; and
+8. updates uncertainty and volatility after the prediction has been scored.
+
+Multi-step `predict(horizon=n)` runs both models on their own predictions without
+consuming observations.
+
+## Scientific position
+
+Predictive processing is an influential computational theory, not a settled
+claim that every part of every brain works this way. The foundational visual
+model is Rao & Ballard (1999); Friston's free-energy work extends the idea into a
+broader account of inference and action. Predictive-coding networks with local
+Hebbian updates can also approximate backpropagation under specific assumptions.
+
+- [Rao & Ballard, 1999](https://pubmed.ncbi.nlm.nih.gov/10195184/)
+- [Friston, 2010](https://www.nature.com/articles/nrn2787)
+- [Whittington & Bogacz, 2017](https://pmc.ncbi.nlm.nih.gov/articles/PMC5467749/)
+
+Athena combines mechanisms from this literature with standard online system
+identification. The current implementation is engineering research, not a claim
+of novel neuroscience.
+
+## What “learn forever” requires
+
+Continuous updates alone are not enough. A credible forever learner needs:
+
+- learnable signal and trustworthy feedback;
+- a stability/plasticity mechanism so new learning does not erase old learning;
+- calibrated uncertainty so noise is not mistaken for knowledge;
+- held-out and prequential tests that the learner cannot update through;
+- checkpoints, rollback, and versioned state;
+- bounded updates so surprise cannot destabilize the system; and
+- explicit resource limits or memory will grow forever even if capability does
+  not.
+
+Athena v0.2 implements early versions of these contracts. It does not yet solve
+representation learning, causal reasoning, goal formation, action selection,
+or safe self-modification.
+
+## Next research milestones
+
+1. Evaluate on real, non-stationary sensor and forecasting streams with multiple
+   seeds, noise levels, and ablations.
+2. Make predictions action-conditioned: predict what follows from each possible
+   action, act, then learn from the consequence.
+3. Learn compact representations for images or audio instead of consuming only
+   low-dimensional vectors.
+4. Add episodic consolidation for rare surprises and finite-capacity eviction
+   for obsolete contexts.
+5. Separate a protected evaluator from the learner so recursive changes cannot
+   redefine their own success criterion.
+
+## Validation and layout
+
+```bash
+python3 tests/test_athena.py          # 16 behavioral tests
+python3 examples/honest_benchmark.py
+python3 examples/continual_benchmark.py
+python3 examples/precision.py
+```
+
+| path | purpose |
+|---|---|
+| `athena/core.py` | hierarchy, recursive memory fusion, loop, checkpoints |
+| `athena/context.py` | Bayesian regime inference and protected recruitment |
+| `athena/baselines.py` | online RLS and its prequential contract |
+| `athena/precision.py` | uncertainty and volatility estimation |
+| `athena/world.py` | deterministic synthetic worlds and simple baselines |
+| `examples/` | reproducible stationary and continual benchmarks |
+| `tests/test_athena.py` | behavioral claims and persistence contracts |
+
+Requires Python 3.10+ and NumPy:
+
+```bash
+python3 -m pip install -e .
+```

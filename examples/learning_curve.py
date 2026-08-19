@@ -1,10 +1,9 @@
 """Does it actually get better by predicting?
 
 Runs Athena on a stationary multi-frequency signal and compares it against the
-two baselines that matter. The comparison is the point: a predictive model on
-a smooth signal will look impressive against nothing at all, so the bar here is
-constant-velocity extrapolation, which is a prediction the model gets for free
-from its own inputs.
+three baselines that matter. The comparison is the point: a predictive model on
+a smooth signal will look impressive against nothing at all. Online RLS(2) is
+the strongest bar because it can represent a sinusoid exactly.
 
     python3 examples/learning_curve.py
 """
@@ -18,7 +17,15 @@ import numpy as np
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from athena import Athena, Config, Regime, SwitchingWorld, linear_mse, persistence_mse
+from athena import (
+    Athena,
+    Config,
+    OnlineRLS,
+    Regime,
+    SwitchingWorld,
+    linear_mse,
+    persistence_mse,
+)
 from athena.plot import chart
 
 STEPS = 8000
@@ -45,6 +52,8 @@ def main() -> None:
 
     persistence = np.array(persistence_mse(observations))
     linear = np.array(linear_mse(observations))
+    rls = OnlineRLS(CHANNELS, order=2)
+    rls_mse = np.array([report.mse for report in rls.run(observations)])
 
     print(__doc__.strip().splitlines()[0])
     print()
@@ -54,6 +63,7 @@ def main() -> None:
                 "athena": mse,
                 "persistence": persistence,
                 "linear": linear,
+                "online RLS(2)": rls_mse,
             },
             log=True,
             title=f"prediction error over {STEPS} steps (log scale)",
@@ -65,10 +75,12 @@ def main() -> None:
     print("mean squared error over the last 1000 steps")
     print(f"  persistence  (x_t)            {persistence[tail].mean():.3e}")
     print(f"  linear       (x_t + dx_t)     {linear[tail].mean():.3e}")
+    print(f"  online RLS(2)                 {rls_mse[tail].mean():.3e}")
     print(f"  athena                        {mse[tail].mean():.3e}")
     factor = persistence[tail].mean() / max(mse[tail].mean(), 1e-12)
     print(f"\n  {factor:.0f}x better than persistence, "
           f"{linear[tail].mean() / max(mse[tail].mean(), 1e-12):.1f}x better than linear.")
+    print("  RLS is expected to remain the best model on this exact AR(2) world.")
 
     print(f"\n  context experts recruited: {model.gate.allocations or 'none'} "
           "(a world that never changes needs none)")

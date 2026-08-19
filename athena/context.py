@@ -137,8 +137,14 @@ class ContextGate:
         post = np.maximum(post, self.floor)
         return post / post.sum()
 
-    def infer(self, expert_error: np.ndarray) -> np.ndarray:
-        """Posterior over experts given each one's precision-weighted error."""
+    def infer(self, expert_error: np.ndarray, adapt: bool = True) -> np.ndarray:
+        """Posterior over experts given each one's precision-weighted error.
+
+        ``adapt=False`` still advances the short-lived filtering state needed
+        to recognise a context, but it never recruits new long-term capacity.
+        That distinction lets a caller evaluate a frozen model on a stream
+        without silently changing what the model knows.
+        """
         expert_error = np.asarray(expert_error, dtype=float)
         best = float(expert_error.min())
 
@@ -146,7 +152,7 @@ class ContextGate:
             self._evidence -= expert_error / (2.0 * self.temperature)
             self._left -= 1
             if self._left <= 0:
-                return self._resolve()
+                return self._resolve(adapt=adapt)
             # Still predict as well as we can while deciding.
             ev = self._evidence - self._evidence.max()
             post = np.maximum(np.exp(ev), self.floor)
@@ -170,7 +176,7 @@ class ContextGate:
 
         return self._softmax_posterior(expert_error)
 
-    def _resolve(self) -> np.ndarray:
+    def _resolve(self, adapt: bool = True) -> np.ndarray:
         """Probation is over: switch to a known expert, or recruit a new one."""
         best_k = int(self._evidence.argmax())
         # Convert accumulated log-evidence back into a mean per-step error.
@@ -178,9 +184,10 @@ class ContextGate:
         explained = self.baseline is None or mean_error <= self.change_factor * self.baseline
         spare = self.claimed.min() < self.fresh_claims
 
-        if explained or not spare:
+        if explained or not spare or not adapt:
             self.state = GateState.STEADY
-            self.switches.append(best_k)
+            if adapt:
+                self.switches.append(best_k)
             return self._one_hot(best_k)
 
         target = int(np.lexsort((self.usage, self.claimed))[0])
@@ -191,15 +198,21 @@ class ContextGate:
         return self._one_hot(target)
 
     # ------------------------------------------------------------------
-    def commit(self, posterior: np.ndarray, best_error: float | None = None) -> None:
-        """Accept a posterior as this timestep's belief and learn from it."""
+    def commit(
+        self,
+        posterior: np.ndarray,
+        best_error: float | None = None,
+        adapt: bool = True,
+    ) -> None:
+        """Accept a posterior and optionally update long-term gate statistics."""
         self.prev_belief = self.belief
         self.belief = posterior
-        self.usage += posterior
-        if float(posterior.max()) > 0.5:
-            self.claimed[int(posterior.argmax())] += 1.0
+        if adapt:
+            self.usage += posterior
+            if float(posterior.max()) > 0.5:
+                self.claimed[int(posterior.argmax())] += 1.0
 
-        if best_error is not None and self.state is GateState.STEADY:
+        if adapt and best_error is not None and self.state is GateState.STEADY:
             # Slow, and frozen while the gate is unsettled, so that a genuine
             # change stands out against it instead of being absorbed into it.
             self.baseline = (
@@ -208,7 +221,7 @@ class ContextGate:
                 else self.baseline + 0.01 * (best_error - self.baseline)
             )
 
-        if self.k > 1 and self.state is GateState.STEADY:
+        if adapt and self.k > 1 and self.state is GateState.STEADY:
             self.A += self.lr * np.outer(self.belief, self.prev_belief)
             self.A = np.maximum(self.A, 1e-4)
             self.A /= self.A.sum(axis=0, keepdims=True)
