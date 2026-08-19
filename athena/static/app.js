@@ -4,6 +4,10 @@ const conversation = document.querySelector("#conversation");
 const emptyState = document.querySelector("#empty-state");
 const errorBanner = document.querySelector("#error-banner");
 const askButton = document.querySelector("#ask-button");
+const discoverSkillButton = document.querySelector("#discover-skill-button");
+const skillTrialResult = document.querySelector("#skill-trial-result");
+const skillRunForm = document.querySelector("#skill-run-form");
+const skillRunOutput = document.querySelector("#skill-run-output");
 
 async function api(path, options = {}) {
   const response = await fetch(path, {
@@ -197,6 +201,96 @@ function renderFacts(items) {
   });
 }
 
+function renderSkills(items) {
+  const container = document.querySelector("#skill-list");
+  const select = document.querySelector("#skill-select");
+  const previousSelection = select.value;
+  document.querySelector("#skill-count").textContent = items.length;
+  container.replaceChildren();
+  select.replaceChildren();
+  container.className = "state-list";
+  if (!items.length) {
+    container.classList.add("empty-copy");
+    container.textContent = "No procedural skills yet.";
+    skillRunForm.hidden = true;
+    return;
+  }
+  items.forEach((item) => {
+    const card = element("div", "state-item");
+    const top = element("div", "state-item-top");
+    top.append(element("strong", "", item.name));
+    top.append(element("small", "status-preferred", `v${item.version}`));
+    card.append(top);
+    card.append(
+      element(
+        "p",
+        "",
+        `${item.program} · ${item.verification_cases} held-out checks`,
+      ),
+    );
+    container.append(card);
+
+    const option = element("option", "", item.name);
+    option.value = item.name;
+    select.append(option);
+  });
+  if ([...select.options].some((option) => option.value === previousSelection)) {
+    select.value = previousSelection;
+  }
+  skillRunForm.hidden = false;
+}
+
+function renderSkillTrial(payload) {
+  const learning = payload.learning;
+  const verification = learning.consolidation.verification;
+  skillTrialResult.replaceChildren();
+  skillTrialResult.className = "skill-trial-result";
+
+  const summary = element("div", "trial-summary");
+  [
+    [learning.gap_before.hypotheses_remaining, "Initial hypotheses"],
+    [learning.experiments.length, "Chosen experiments"],
+    [payload.revealed_world_program, "Induced procedure"],
+    [`${verification.passed_cases}/${verification.total_cases}`, "Held-out verification"],
+  ].forEach(([value, label]) => {
+    const metric = element("div", "trial-metric");
+    metric.append(element("strong", "", value));
+    metric.append(element("small", "", label));
+    summary.append(metric);
+  });
+  skillTrialResult.append(summary);
+
+  const log = element("div", "experiment-log");
+  learning.experiments.forEach((experiment, index) => {
+    const row = element("div");
+    row.append(
+      element(
+        "span",
+        "",
+        `test ${index + 1}: ${JSON.stringify(experiment.input)} → ${JSON.stringify(experiment.observation)}`,
+      ),
+    );
+    row.append(
+      element(
+        "span",
+        "",
+        `${experiment.hypotheses_before} → ${experiment.hypotheses_after}`,
+      ),
+    );
+    log.append(row);
+  });
+  skillTrialResult.append(log);
+  skillTrialResult.append(
+    element(
+      "div",
+      "feedback-result",
+      payload.transfer.passed
+        ? `Consolidated and transferred: ${JSON.stringify(payload.transfer.input)} → ${JSON.stringify(payload.transfer.output)}`
+        : "The candidate was not consolidated because verification failed.",
+    ),
+  );
+}
+
 function renderState(state) {
   document.querySelector("#backend-badge").textContent = state.backend;
   document.querySelector("#experience-count").textContent =
@@ -204,7 +298,49 @@ function renderState(state) {
   renderStrategies(state.strategies || []);
   renderMemories(state.episodes || []);
   renderFacts(state.beliefs || []);
+  renderSkills(state.skills || []);
 }
+
+discoverSkillButton.addEventListener("click", async () => {
+  clearError();
+  discoverSkillButton.disabled = true;
+  discoverSkillButton.textContent = "Experimenting…";
+  try {
+    const now = Date.now();
+    const payload = await api("/api/skills/discover", {
+      method: "POST",
+      body: JSON.stringify({
+        name: `discovered-skill-${now}`,
+        seed: now % 1000000,
+      }),
+    });
+    renderSkillTrial(payload);
+    renderState(payload.state);
+  } catch (error) {
+    showError(error);
+  } finally {
+    discoverSkillButton.disabled = false;
+    discoverSkillButton.textContent = "Run another trial";
+  }
+});
+
+skillRunForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  clearError();
+  try {
+    const data = new FormData(skillRunForm);
+    const input = JSON.parse(String(data.get("input")));
+    if (!Array.isArray(input)) throw new Error("Input must be a JSON array");
+    const payload = await api("/api/skills/run", {
+      method: "POST",
+      body: JSON.stringify({ name: data.get("name"), input }),
+    });
+    skillRunOutput.textContent = `${JSON.stringify(payload.input)} → ${JSON.stringify(payload.output)}`;
+    skillRunOutput.hidden = false;
+  } catch (error) {
+    showError(error);
+  }
+});
 
 taskForm.addEventListener("submit", async (event) => {
   event.preventDefault();

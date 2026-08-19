@@ -21,6 +21,19 @@ from .foundation import (
 )
 from .memory import Belief, BeliefStore, Episode, EpisodicMemory, HashingEncoder
 from .precision import Precision, VolatilityTracker
+from .skills import (
+    ConsolidationReport,
+    Example,
+    Experiment,
+    KnowledgeGap,
+    LearningReport,
+    NovelTaskLearner,
+    Program,
+    ProgramCatalog,
+    Skill,
+    SkillRegistry,
+    VerificationReport,
+)
 from .world import (
     Regime,
     SwitchingWorld,
@@ -53,6 +66,17 @@ __all__ = [
     "EpisodicMemory",
     "Belief",
     "BeliefStore",
+    "Program",
+    "ProgramCatalog",
+    "Example",
+    "Experiment",
+    "KnowledgeGap",
+    "VerificationReport",
+    "Skill",
+    "ConsolidationReport",
+    "LearningReport",
+    "SkillRegistry",
+    "NovelTaskLearner",
     "BaselineReport",
     "OnlineRLS",
     "Precision",
@@ -65,4 +89,4 @@ __all__ = [
     "linear_mse",
     "zero_mse",
 ]
-__version__ = "0.4.0"
+__version__ = "0.5.0"

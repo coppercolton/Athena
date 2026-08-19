@@ -16,12 +16,14 @@ import ipaddress
 import json
 import os
 from pathlib import Path
+import random
 import threading
 from typing import Any
 import webbrowser
 
 from .agent import AgentConfig, AthenaAgent, Decision, FoundationModel
 from .foundation import DemoFoundation, FoundationError, OpenAIResponsesFoundation
+from .skills import NovelTaskLearner, SkillRegistry
 
 
 MAX_REQUEST_BYTES = 1_000_000
@@ -44,11 +46,20 @@ class PlaygroundService:
     ) -> None:
         self.foundation = foundation
         self.state_path = Path(state_path).expanduser().resolve()
+        self.skill_path = self.state_path.with_name(
+            f"{self.state_path.stem}.skills.json"
+        )
         self._lock = threading.RLock()
         if self.state_path.exists():
             self.agent = AthenaAgent.load(self.state_path, foundation=foundation)
         else:
             self.agent = AthenaAgent(foundation=foundation, config=config)
+        registry = (
+            SkillRegistry.load(self.skill_path)
+            if self.skill_path.exists()
+            else SkillRegistry()
+        )
+        self.skill_learner = NovelTaskLearner(registry=registry)
 
     @property
     def backend_name(self) -> str:
@@ -59,6 +70,9 @@ class PlaygroundService:
         temporary = self.state_path.with_name(f".{self.state_path.name}.tmp")
         self.agent.save(temporary)
         os.replace(temporary, self.state_path)
+
+    def _save_skills(self) -> None:
+        self.skill_learner.registry.save(self.skill_path)
 
     def decide(self, payload: dict[str, Any]) -> dict[str, object]:
         situation = str(payload.get("situation", ""))
@@ -99,6 +113,65 @@ class PlaygroundService:
             self._save()
             return {"belief": asdict(belief), "state": self.state()}
 
+    def discover_skill(self, payload: dict[str, Any]) -> dict[str, object]:
+        """Run a real active-learning trial against an unrevealed rule."""
+
+        with self._lock:
+            default_name = f"novel-skill-{len(self.skill_learner.registry) + 1}"
+            name = str(payload.get("name", default_name)).strip()
+            if not name:
+                raise ValueError("skill name is required")
+            if len(name) > 120:
+                raise ValueError("skill name must be at most 120 characters")
+            seed = int(payload.get("seed", len(self.skill_learner.registry) + 1))
+            target_pool = tuple(
+                program
+                for program in self.skill_learner.catalog.programs
+                if len(program.steps) == 2
+            )
+            if not target_pool:
+                raise RuntimeError("no multi-step target programs are available")
+            target = random.Random(seed).choice(target_pool)
+            report = self.skill_learner.learn_by_experiment(name, target.apply)
+            if report.consolidation.accepted:
+                self._save_skills()
+
+            raw_transfer = payload.get("transfer_input", [90, 20, 70, 10, 50, 30])
+            if not isinstance(raw_transfer, list):
+                raise ValueError("transfer_input must be a JSON array")
+            transfer_input = tuple(raw_transfer)
+            learned_output = (
+                self.skill_learner.registry.run(name, transfer_input)
+                if report.consolidation.accepted
+                else ()
+            )
+            expected_output = target.apply(transfer_input)
+            return {
+                "learning": asdict(report),
+                # The world rule is revealed only after all predictions,
+                # observations, and held-out verification have completed.
+                "revealed_world_program": target.expression,
+                "transfer": {
+                    "input": transfer_input,
+                    "output": learned_output,
+                    "expected": expected_output,
+                    "passed": learned_output == expected_output,
+                },
+                "state": self.state(),
+            }
+
+    def run_skill(self, payload: dict[str, Any]) -> dict[str, object]:
+        name = str(payload.get("name", "")).strip()
+        values = payload.get("input")
+        if not isinstance(values, list):
+            raise ValueError("input must be a JSON array")
+        with self._lock:
+            return {
+                "name": name,
+                "input": values,
+                "output": self.skill_learner.registry.run(name, values),
+            }
+
     def state(self) -> dict[str, object]:
         with self._lock:
             episodes = [asdict(item) for item in reversed(self.agent.memory.episodes[-20:])]
@@ -107,6 +180,19 @@ class PlaygroundService:
             pending = [
                 _decision_state(item.decision)
                 for _, item in sorted(self.agent._pending.items())
+            ]
+            skills = [
+                {
+                    "name": item.name,
+                    "domain": item.domain,
+                    "program": item.program.expression,
+                    "acquired_via": item.acquired_via,
+                    "version": item.version,
+                    "confidence": item.confidence,
+                    "verification_cases": len(item.verification_cases),
+                    "components": item.components,
+                }
+                for item in self.skill_learner.registry.all()
             ]
             return {
                 "backend": self.backend_name,
@@ -117,6 +203,8 @@ class PlaygroundService:
                 "pending_count": len(self.agent._pending),
                 "pending_decisions": pending,
                 "total_experiences": len(self.agent.memory),
+                "skills": skills,
+                "skill_count": len(skills),
             }
 
 
@@ -128,7 +216,7 @@ def make_handler(service: PlaygroundService):
     """Create an isolated request-handler class bound to one service."""
 
     class Handler(BaseHTTPRequestHandler):
-        server_version = "AthenaPlayground/0.4"
+        server_version = "AthenaPlayground/0.5"
 
         def _json(self, value: object, status: HTTPStatus = HTTPStatus.OK) -> None:
             encoded = json.dumps(value, ensure_ascii=False).encode("utf-8")
@@ -186,6 +274,8 @@ def make_handler(service: PlaygroundService):
                     "/api/decide": service.decide,
                     "/api/learn": service.learn,
                     "/api/facts": service.learn_fact,
+                    "/api/skills/discover": service.discover_skill,
+                    "/api/skills/run": service.run_skill,
                 }
                 if self.path not in routes:
                     self._json({"error": "not found"}, HTTPStatus.NOT_FOUND)

@@ -158,6 +158,33 @@ def test_service_checkpoints_decisions_outcomes_and_taught_facts():
         assert state["beliefs"][0]["consolidated"] is True
 
 
+def test_service_discovers_persists_and_executes_a_verified_skill():
+    with tempfile.TemporaryDirectory() as directory:
+        state_path = Path(directory) / "state" / "athena.npz"
+        service = PlaygroundService(DemoFoundation(), state_path)
+        result = service.discover_skill(
+            {
+                "name": "unknown-rule",
+                "seed": 42,
+                "transfer_input": [9, 2, 7, 1, 5],
+            }
+        )
+        learning = result["learning"]
+        assert learning["gap_before"]["hypotheses_remaining"] > 50
+        assert learning["gap_after"]["hypotheses_remaining"] == 1
+        assert learning["consolidation"]["accepted"] is True
+        assert result["transfer"]["passed"] is True
+        assert result["state"]["skill_count"] == 1
+        assert service.skill_path.exists()
+
+        restored = PlaygroundService(DemoFoundation(), state_path)
+        assert restored.state()["skills"][0]["name"] == "unknown-rule"
+        executed = restored.run_skill(
+            {"name": "unknown-rule", "input": ["unseen", "after", "restart"]}
+        )
+        assert isinstance(executed["output"], tuple)
+
+
 def _json_request(url, path, payload=None):
     data = None if payload is None else json.dumps(payload).encode("utf-8")
     outgoing = request.Request(
@@ -207,8 +234,8 @@ def test_browser_api_runs_the_full_prediction_feedback_loop():
 
             with request.urlopen(f"{url}/", timeout=5) as response:
                 page = response.read().decode("utf-8")
-            assert "Continual Agent Lab" in page
-            assert "Give Athena a problem" in page
+            assert "Growing Intelligence Lab" in page
+            assert "Learn an unrevealed rule" in page
         finally:
             server.shutdown()
             server.server_close()

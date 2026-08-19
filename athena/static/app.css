@@ -18,6 +18,10 @@
   box-sizing: border-box;
 }
 
+[hidden] {
+  display: none !important;
+}
+
 body {
   min-height: 100vh;
   margin: 0;
@@ -31,7 +35,8 @@ body {
 
 button,
 input,
-textarea {
+textarea,
+select {
   font: inherit;
 }
 
@@ -210,7 +215,8 @@ button {
 }
 
 input,
-textarea {
+textarea,
+select {
   width: 100%;
   border: 0;
   outline: 0;
@@ -226,6 +232,165 @@ textarea {
 input::placeholder,
 textarea::placeholder {
   color: #5d6877;
+}
+
+.skill-lab {
+  max-width: 900px;
+  margin: 0 auto 30px;
+  padding: 24px;
+  border: 1px solid rgba(94, 234, 212, 0.2);
+  border-radius: 18px;
+  background:
+    linear-gradient(135deg, rgba(20, 184, 166, 0.06), transparent 45%),
+    rgba(13, 19, 27, 0.92);
+  box-shadow: var(--shadow);
+}
+
+.skill-lab-heading {
+  display: flex;
+  gap: 24px;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.skill-lab-heading h2 {
+  margin: 0;
+  font-family: Georgia, serif;
+  font-size: 28px;
+  font-weight: 400;
+}
+
+.skill-lab-heading p:last-child {
+  max-width: 610px;
+  margin: 9px 0 0;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.skill-lab-heading .primary-button {
+  min-height: 48px;
+  padding: 0 18px;
+  white-space: nowrap;
+}
+
+.skill-trial-result {
+  margin-top: 20px;
+  padding-top: 18px;
+  border-top: 1px solid var(--line);
+}
+
+.trial-summary {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 9px;
+}
+
+.trial-metric {
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 11px;
+  background: rgba(255, 255, 255, 0.018);
+}
+
+.trial-metric strong,
+.trial-metric small {
+  display: block;
+}
+
+.trial-metric strong {
+  color: var(--cyan);
+  font-size: 16px;
+}
+
+.trial-metric small {
+  margin-top: 5px;
+  color: var(--muted);
+  font-size: 9px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.experiment-log {
+  display: grid;
+  gap: 7px;
+  margin-top: 12px;
+}
+
+.experiment-log div {
+  display: flex;
+  justify-content: space-between;
+  padding: 8px 10px;
+  border-radius: 8px;
+  color: #aeb8c5;
+  background: rgba(0, 0, 0, 0.15);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 10px;
+}
+
+.skill-run-form {
+  display: grid;
+  grid-template-columns: 150px minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: end;
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid var(--line);
+}
+
+.skill-run-form label {
+  align-self: center;
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.skill-run-form select,
+.skill-run-form input {
+  min-height: 39px;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: rgba(0, 0, 0, 0.16);
+}
+
+.skill-run-form button {
+  min-height: 39px;
+  padding: 0 12px;
+  border: 1px solid rgba(94, 234, 212, 0.25);
+  border-radius: 9px;
+  color: var(--cyan);
+  background: rgba(20, 184, 166, 0.07);
+  cursor: pointer;
+}
+
+.skill-run-output {
+  display: block;
+  margin-top: 10px;
+  padding: 10px 12px;
+  border-radius: 9px;
+  color: var(--green);
+  background: rgba(22, 101, 52, 0.08);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px;
+}
+
+.section-divider {
+  display: flex;
+  align-items: center;
+  max-width: 900px;
+  margin: 0 auto 16px;
+  color: #667384;
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.section-divider::after {
+  flex: 1;
+  height: 1px;
+  margin-left: 12px;
+  background: var(--line);
+  content: "";
 }
 
 .context-field {
@@ -660,6 +825,16 @@ textarea::placeholder {
   }
 
   .feedback {
+    grid-template-columns: 1fr;
+  }
+
+  .skill-lab-heading {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .trial-summary,
+  .skill-run-form {
     grid-template-columns: 1fr;
   }
 
