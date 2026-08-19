@@ -1,0 +1,146 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="color-scheme" content="dark">
+    <title>Athena — Continual Agent Lab</title>
+    <link rel="stylesheet" href="/app.css">
+    <script src="/app.js" defer></script>
+  </head>
+  <body>
+    <div class="ambient ambient-one"></div>
+    <div class="ambient ambient-two"></div>
+
+    <header class="topbar">
+      <a class="brand" href="/" aria-label="Athena home">
+        <span class="brand-mark">A</span>
+        <span>
+          <strong>Athena</strong>
+          <small>Continual Agent Lab</small>
+        </span>
+      </a>
+      <div class="topbar-meta">
+        <span id="backend-badge" class="badge">Connecting…</span>
+        <span id="experience-count" class="counter">0 experiences</span>
+      </div>
+    </header>
+
+    <main class="layout">
+      <section class="workspace" aria-label="Agent workspace">
+        <div class="hero">
+          <p class="eyebrow">LEARN BY PREDICTING</p>
+          <h1>Give Athena a problem.<br><span>Teach it what happens.</span></h1>
+          <p>
+            Athena proposes an action before seeing the outcome. Your feedback
+            becomes experience that changes what it does next.
+          </p>
+        </div>
+
+        <form id="task-form" class="task-composer">
+          <div class="context-field">
+            <label for="context-key">Context</label>
+            <input id="context-key" name="context_key" value="general" maxlength="80" required>
+          </div>
+          <div class="situation-field">
+            <label for="situation">Problem or situation</label>
+            <textarea
+              id="situation"
+              name="situation"
+              rows="3"
+              maxlength="5000"
+              placeholder="Example: I need to learn how this unfamiliar tool works…"
+              required
+            ></textarea>
+          </div>
+          <button id="ask-button" class="primary-button" type="submit">
+            <span>Ask Athena</span>
+            <span aria-hidden="true">→</span>
+          </button>
+        </form>
+
+        <div id="error-banner" class="error-banner" role="alert" hidden></div>
+
+        <section id="conversation" class="conversation" aria-live="polite">
+          <div id="empty-state" class="empty-state">
+            <div class="loop-icon" aria-hidden="true">↻</div>
+            <h2>No experiences yet</h2>
+            <p>
+              Try the same kind of problem several times and give different
+              outcomes. Watch Athena's predictions and choices adapt.
+            </p>
+            <div class="suggestions">
+              <button
+                type="button"
+                data-prompt="An urgent lead wants to tour an apartment tonight"
+                data-context="urgent-lead"
+              >Urgent sales lead</button>
+              <button
+                type="button"
+                data-prompt="I need to understand a software tool I have never used before"
+                data-context="novel-task"
+              >Learn a new tool</button>
+              <button
+                type="button"
+                data-prompt="Help me choose the safest first step for an unfamiliar problem"
+                data-context="problem-solving"
+              >Solve a new problem</button>
+            </div>
+          </div>
+        </section>
+      </section>
+
+      <aside class="memory-panel" aria-label="Athena learning state">
+        <div class="panel-heading">
+          <div>
+            <p class="eyebrow">LIVE STATE</p>
+            <h2>What Athena has learned</h2>
+          </div>
+          <span class="pulse" title="Learning state active"></span>
+        </div>
+
+        <section class="state-section">
+          <div class="section-title">
+            <h3>Strategies</h3>
+            <span id="strategy-count">0</span>
+          </div>
+          <div id="strategy-list" class="state-list empty-copy">No strategy evidence yet.</div>
+        </section>
+
+        <section class="state-section">
+          <div class="section-title">
+            <h3>Recent experiences</h3>
+            <span id="memory-count">0</span>
+          </div>
+          <div id="memory-list" class="state-list empty-copy">No outcomes recorded yet.</div>
+        </section>
+
+        <section class="state-section teach-section">
+          <div class="section-title">
+            <h3>Teach a fact</h3>
+            <span id="fact-count">0</span>
+          </div>
+          <form id="fact-form" class="fact-form">
+            <input name="key" placeholder="Subject, e.g. office closes" required maxlength="200">
+            <input name="value" placeholder="Value, e.g. 6 PM" required maxlength="500">
+            <input name="source" placeholder="Source ID" required maxlength="120">
+            <div class="fact-actions">
+              <label>
+                Reliability
+                <input name="reliability" type="number" value="1" min="0.01" max="1" step="0.01" required>
+              </label>
+              <button type="submit">Add evidence</button>
+            </div>
+          </form>
+          <div id="fact-list" class="state-list empty-copy">No factual evidence yet.</div>
+        </section>
+
+        <p class="privacy-note">
+          Runs locally. In live mode, task text and retrieved learning context
+          are sent to the configured foundation API; your API key stays on the
+          server.
+        </p>
+      </aside>
+    </main>
+  </body>
+</html>

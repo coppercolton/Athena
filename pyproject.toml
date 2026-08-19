@@ -4,11 +4,17 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "athena-predictive-processing"
-version = "0.3.0"
-description = "A predictive-processing model and continual experience-learning agent"
+version = "0.4.0"
+description = "A predictive-processing model with a runnable continual-learning agent"
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = ["numpy>=1.24"]
 
+[project.scripts]
+athena-playground = "athena.playground:main"
+
 [tool.setuptools.packages.find]
 include = ["athena*"]
+
+[tool.setuptools.package-data]
+athena = ["static/*.html", "static/*.css", "static/*.js"]
