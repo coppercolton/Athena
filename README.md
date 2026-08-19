@@ -1,7 +1,7 @@
 # Athena
 
 Athena is an experimental architecture for intelligence that keeps learning
-after deployment. It combines five complementary systems:
+after deployment. It combines six complementary systems:
 
 - a numeric continual world model that predicts the next observation and
   updates online; and
@@ -16,7 +16,9 @@ after deployment. It combines five complementary systems:
   traces into reusable workflows that bind to differently named tools; and
 - a protected neural-plasticity layer that trains expandable neural experts from
   outcome-labelled experience and promotes new weights only after held-out and
-  regression evaluation.
+  regression evaluation; and
+- a grounded representation layer that compresses raw sensor grids into a
+  learned latent state and reuses that state across protected reasoning heads.
 
 Learning is explicit rather than hidden behind chat history. Predictions are
 recorded before outcomes arrive, experience is the data, and neural candidate
@@ -36,11 +38,16 @@ mean error must improve monotonically or that every environment is predictable.
 It means its learning machinery remains plastic, bounded, inspectable,
 testable, and resumable while observations and consequences keep arriving.
 
-## Try Athena — v0.7
+## Try Athena — v0.8
 
-V0.7 exposes four different kinds of post-deployment learning in one local
+V0.8 exposes five different kinds of post-deployment learning in one local
 browser interface:
 
+- **Representation learning:** give Athena raw two-channel 8×8 sensor grids.
+  It learns a masked-reconstruction bottleneck, tests the latent state on unseen
+  observations, grounds reasoning operators without object coordinates, compares
+  them with an untrained-encoder control, and measures transfer under noisier,
+  dimmer sensors.
 - **Neural reasoning improvement:** train a fresh neural expert from labelled
   experiences. Athena measures accuracy before learning, changes real weights,
   evaluates unseen cases, replays protected abilities, and either promotes or
@@ -132,25 +139,96 @@ update at `~/.athena/playground.npz` by default. Symbolic skills are stored in
 `~/.athena/playground.skills.json`, and verified tool workflows in
 `~/.athena/playground.tool-skills.json`. Consolidated neural experts, protected
 replay cases, and their actual parameters are stored in
-`~/.athena/playground.plasticity.npz`. Use `--state PATH` for another identity or
-experiment. Because live requests include the current task and retrieved
+`~/.athena/playground.plasticity.npz`. Learned sensor representations, grounded
+operators, replay, probes, and exact parameters are stored in
+`~/.athena/playground.representations.npz`. Use `--state PATH` for another
+identity or experiment. Because live requests include the current task and retrieved
 learning context, do not place sensitive information in the agent unless it is
 appropriate to send to the configured model provider.
 
 ### What the playground can and cannot do
 
-It can change small neural networks after deployment, recruit isolated capacity,
-transfer learned relations to unseen values, replay protected cases, reject
-regressive updates, learn permissioned workflows across differently named
+It can learn a compressed latent state from raw pixels, reuse it across multiple
+reasoning heads, change small neural networks after deployment, recruit isolated
+capacity, transfer learned relations to unseen values, replay protected cases,
+reject regressive updates, learn permissioned workflows across differently named
 virtual tools, acquire procedures in its constrained symbolic language, reason
 through a connected foundation model, and resume every learning subsystem after
 restart.
 
 It deliberately does **not** execute an arbitrary shell or connect the demo to
-external accounts. V0.7 executes registered tools only inside `OpaqueKVWorld`;
+external accounts. V0.8 executes registered tools only inside `OpaqueKVWorld`;
 the `ToolEnvironment` protocol is the boundary for future real integrations.
 External writes are denied by default. Moving beyond the sandbox requires a
 specific adapter, user authorization, task verifier, and rollback strategy.
+
+## What v0.8 established
+
+V0.8 replaces the four hand-authored numeric features used by v0.7's newest
+learning demonstration with 128 raw pixel channels. A masked nonlinear
+autoencoder learns a 16-value latent representation from unlabelled observation
+reconstruction. Modular reasoning heads then receive only that latent state—not
+the hidden object coordinates used to generate the benchmark.
+
+The representation lifecycle is:
+
+1. receive unlabelled raw sensor observations;
+2. mask pixels and train candidate encoder/decoder weights to reconstruct them;
+3. verify reconstruction on observations unavailable to training;
+4. reject collapsed latent states using a variance gate;
+5. ground separately addressable reasoning heads in the retained latent state;
+6. compare each head with the identical initialization on an untrained encoder;
+7. test transfer under increased noise and reduced brightness;
+8. keep the shared encoder frozen while adding heads; and
+9. when refining the encoder, retrain candidate heads from replay and promote the
+   complete candidate only if every protected operator still passes.
+
+### Learned-representation benchmark
+
+Across ten independent seeds, Athena learns one latent visual state and two
+relations: horizontal ordering and vertical ordering. Training, held-out
+verification, sensor-shift transfer, and the untrained-representation control
+use separate observations.
+
+| measure | result |
+|---|---:|
+| sensor representations promoted | **10 / 10** |
+| reasoning operators promoted | **20 / 20** |
+| noisier, dimmer sensor transfers | **20 / 20** |
+| mean shifted-sensor accuracy | **92.510%** |
+| learned encoder beat identical untrained encoder | **20 / 20** |
+| mean held-out representation advantage | **+7.949 points** |
+| encoder unchanged while adding heads | **10 / 10** |
+| unverifiable representation updates rolled back | **10 / 10** |
+
+Run the demonstration and benchmark with:
+
+```bash
+python3 examples/learned_representations.py
+python3 examples/representation_benchmark.py --seeds 10
+```
+
+This is evidence that Athena can learn and reuse a small sensory representation;
+it is not evidence of general vision or general intelligence. The sensor world
+is synthetic, the two relations are binary, and operator labels are supplied.
+Natural language, real images, causal action, temporal representation learning,
+and open-ended task discovery remain future gates.
+
+### AGI readiness: fail closed
+
+Athena is **not close to demonstrated AGI**. The repository now encodes that
+conclusion as a mandatory ten-gate audit instead of a subjective percentage.
+Narrow laboratory evidence never counts as a broad pass, and missing evidence
+is always a blocker. The current audit records four narrow laboratory results,
+six capabilities not demonstrated, and zero broad passes.
+
+```bash
+python3 examples/agi_readiness.py
+```
+
+The missing gates include broad cross-domain generality, long-horizon planning,
+multimodal grounding, experience-driven improvement of general reasoning,
+retention at large scale, and open-world reliability and safety.
 
 ## What v0.7 established
 
@@ -583,14 +661,16 @@ Continuous updates alone are not enough. A credible forever learner needs:
 - explicit resource limits or memory will grow forever even if capability does
   not.
 
-Athena v0.7 implements early versions of these contracts across numeric streams,
+Athena v0.8 implements early versions of these contracts across numeric streams,
 outcome-scored agent decisions, constrained executable skills, permissioned
-virtual tool workflows, and expandable neural experts, with a runnable interface
-and optional live foundation adapter. It now improves small task-specific neural
-modules after deployment, but does not yet learn an open-ended representation
-space, improve the hosted foundation's weights, connect itself to arbitrary
-real-world accounts, perform broad causal reasoning, form autonomous goals, or
-safely self-modify. The repository does not bundle or train a foundation model.
+virtual tool workflows, expandable neural experts, and a learned visual latent
+state, with a runnable interface and optional live foundation adapter. It now
+learns a small representation from raw sensor values and improves task-specific
+neural modules after deployment, but does not learn an open-ended multimodal
+representation space, improve the hosted foundation's general weights, connect
+itself to arbitrary real-world accounts, perform broad causal reasoning, form
+autonomous goals, or safely self-modify. The repository does not bundle or train
+a foundation model.
 
 ## Next research milestones
 
@@ -598,9 +678,8 @@ safely self-modify. The repository does not bundle or train a foundation model.
    filesystem workspace and test runner, with explicit per-tool authorization.
 2. Learn conditional, branching, and recovery procedures rather than only linear
    workflows.
-3. Replace human-defined neural inputs with learned representations and reusable
-   reasoning operators acquired from instruction, demonstration, correction,
-   and trial.
+3. Extend learned representations from static synthetic grids to temporal,
+   multimodal experience and ground them in actions and causal consequences.
 4. Evaluate improvement, transfer, forgetting, and poisoned-feedback resistance
    on procedurally novel tasks over long deployments and multiple seeds.
 5. Connect the agent layer to the numeric world model so imagined sensory
@@ -612,7 +691,7 @@ safely self-modify. The repository does not bundle or train a foundation model.
 
 ## Validation and layout
 
-The current regression suite passes **66 / 66** behavioral tests.
+The current regression suite passes **80 / 80** behavioral tests.
 
 ```bash
 python3 tests/test_athena.py          # 16 numeric world-model tests
@@ -620,7 +699,12 @@ python3 tests/test_agent.py           # 8 deployment-learning tests
 python3 tests/test_skills.py          # 7 skill acquisition/retention tests
 python3 tests/test_tool_learning.py   # 15 tool, transfer, policy, rollback tests
 python3 tests/test_plasticity.py      # 8 neural promotion/retention tests
-python3 tests/test_playground.py      # 12 browser/API/foundation tests
+python3 tests/test_representations.py # 9 latent reuse/transfer/rollback tests
+python3 tests/test_readiness.py       # 4 fail-closed AGI audit tests
+python3 tests/test_playground.py      # 13 browser/API/foundation tests
+python3 examples/learned_representations.py
+python3 examples/representation_benchmark.py --seeds 10
+python3 examples/agi_readiness.py
 python3 examples/neural_plasticity.py
 python3 examples/neural_plasticity_benchmark.py
 python3 examples/tool_learning_agent.py
@@ -640,6 +724,8 @@ python3 examples/precision.py
 | `athena/agent.py` | foundation-model boundary, decisions, outcome learning |
 | `athena/foundation.py` | offline demo, OpenAI, and OpenRouter model adapters |
 | `athena/plasticity.py` | neural experts, replay, promotion, rollback, checkpoints |
+| `athena/representations.py` | masked sensor encoder, latent state, grounded reasoning heads |
+| `athena/readiness.py` | mandatory fail-closed AGI evidence gates |
 | `athena/memory.py` | episodic retrieval and evidence-gated factual beliefs |
 | `athena/skills.py` | knowledge gaps, active induction, verification, skill registry |
 | `athena/tool_learning.py` | permission policy, unfamiliar tools, workflow compilation |
@@ -654,6 +740,8 @@ python3 examples/precision.py
 | `tests/test_skills.py` | induction, instruction, transfer, composition, regression |
 | `tests/test_tool_learning.py` | tool calls, validation, transfer, persistence, safety |
 | `tests/test_plasticity.py` | neural updates, transfer, retention, rollback, persistence |
+| `tests/test_representations.py` | raw perception, latent reuse, transfer, refinement, rollback |
+| `tests/test_readiness.py` | AGI audit conservatism and missing-evidence behavior |
 | `tests/test_playground.py` | live adapter contract and end-to-end browser API |
 
 Requires Python 3.10+ and NumPy:

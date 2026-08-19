@@ -260,6 +260,17 @@ textarea::placeholder {
     rgba(13, 19, 27, 0.94);
 }
 
+.representation-lab {
+  border-color: rgba(34, 211, 238, 0.30);
+  background:
+    linear-gradient(135deg, rgba(8, 145, 178, 0.13), transparent 52%),
+    rgba(13, 19, 27, 0.94);
+}
+
+#representation-state + #grounded-operator-list {
+  margin-top: 10px;
+}
+
 .neural-learning-form {
   grid-template-columns: minmax(220px, 1fr) auto;
 }

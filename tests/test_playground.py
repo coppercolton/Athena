@@ -362,6 +362,37 @@ def test_service_grows_persists_and_runs_verified_neural_operator():
         assert prediction["probability"] > 0.5
 
 
+def test_service_learns_persists_and_reuses_raw_visual_representation():
+    with tempfile.TemporaryDirectory() as directory:
+        state_path = Path(directory) / "state" / "athena.npz"
+        service = PlaygroundService(DemoFoundation(), state_path)
+        result = service.ground_visual_operator(
+            {
+                "name": "visual-right-of",
+                "rule": "horizontal_order",
+                "seed": 0,
+            }
+        )
+
+        representation = result["representation_report"]
+        operator = result["operator_report"]
+        assert representation["promoted"] is True
+        assert representation["candidate_loss"] < representation["before_loss"]
+        assert operator["promoted"] is True
+        assert operator["candidate_accuracy"] > operator["untrained_representation_accuracy"]
+        assert result["representation_reused"] is True
+        assert result["transfer"]["passed"] is True
+        assert result["state"]["representation"]["sensor_dim"] == 128
+        assert result["state"]["representation"]["latent_dim"] == 16
+        assert result["state"]["grounded_operator_count"] == 1
+        assert service.representation_path.exists()
+
+        restored = PlaygroundService(DemoFoundation(), state_path)
+        state = restored.state()
+        assert state["representation"] == result["state"]["representation"]
+        assert state["grounded_operators"][0]["name"] == "visual-right-of"
+
+
 def _json_request(url, path, payload=None):
     data = None if payload is None else json.dumps(payload).encode("utf-8")
     outgoing = request.Request(
@@ -437,11 +468,26 @@ def test_browser_api_runs_the_full_prediction_feedback_loop():
             assert neural_learning["transfer"]["passed"] is True
             assert neural_learning["state"]["plastic_skill_count"] == 1
 
+            _, _, representation_learning = _json_request(
+                url,
+                "/api/representations/learn",
+                {
+                    "name": "http-visual-operator",
+                    "rule": "horizontal_order",
+                    "seed": 0,
+                },
+            )
+            assert representation_learning["representation_report"]["promoted"] is True
+            assert representation_learning["operator_report"]["promoted"] is True
+            assert representation_learning["transfer"]["passed"] is True
+            assert representation_learning["state"]["grounded_operator_count"] == 1
+
             with request.urlopen(f"{url}/", timeout=5) as response:
                 page = response.read().decode("utf-8")
             assert "Continual Intelligence Lab" in page
             assert "Enter an unfamiliar workspace" in page
             assert "Grow a neural reasoning operator" in page
+            assert "Learn concepts from raw pixels" in page
         finally:
             server.shutdown()
             server.server_close()

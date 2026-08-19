@@ -30,12 +30,45 @@
       <section class="workspace" aria-label="Agent workspace">
         <div class="hero">
           <p class="eyebrow">LEARN THROUGH EXPERIENCE</p>
-          <h1>Give Athena unfamiliar tools.<br><span>Watch it learn a workflow.</span></h1>
+          <h1>Give Athena raw experience.<br><span>Watch concepts emerge.</span></h1>
           <p>
-            V0.7 adds protected neural plasticity: experience changes real
-            neural weights, but only held-out improvements that preserve older
-            abilities are consolidated into Athena's retained mind.
+            V0.8 learns compressed internal representations directly from raw
+            sensor grids, then reuses that latent state to acquire multiple
+            reasoning operators without changing the shared encoder.
           </p>
+        </div>
+
+        <section class="skill-lab representation-lab" aria-labelledby="representation-lab-title">
+          <div class="skill-lab-heading">
+            <div>
+              <p class="eyebrow">V0.8 · LEARNED REPRESENTATIONS</p>
+              <h2 id="representation-lab-title">Learn concepts from raw pixels</h2>
+              <p>
+                Athena compresses 128 sensor values into a learned 16-value latent
+                state. A new reasoning head sees only that latent state—not object
+                coordinates—and must transfer under dimmer, noisier observations.
+              </p>
+            </div>
+          </div>
+          <form id="representation-learning-form" class="tool-learning-form neural-learning-form">
+            <label>
+              New relation to ground
+              <select name="rule">
+                <option value="horizontal_order">Which object is farther right?</option>
+                <option value="vertical_order">Which object is higher?</option>
+              </select>
+            </label>
+            <button class="primary-button" type="submit">Learn from raw pixels</button>
+          </form>
+          <div id="representation-learning-result" class="skill-trial-result empty-copy">
+            No visual experience yet. Representation learning, the untrained-encoder
+            control, held-out reasoning, sensor-shift transfer, and checksums will
+            be reported separately.
+          </div>
+        </section>
+
+        <div class="section-divider">
+          <span>Protected neural adaptation</span>
         </div>
 
         <section class="skill-lab neural-plasticity-lab" aria-labelledby="plasticity-lab-title">
@@ -212,6 +245,15 @@
           </div>
           <span class="pulse" title="Learning state active"></span>
         </div>
+
+        <section class="state-section">
+          <div class="section-title">
+            <h3>Learned representation</h3>
+            <span id="grounded-operator-count">0</span>
+          </div>
+          <div id="representation-state" class="state-list empty-copy">No latent state yet.</div>
+          <div id="grounded-operator-list" class="state-list empty-copy">No grounded operators yet.</div>
+        </section>
 
         <section class="state-section">
           <div class="section-title">

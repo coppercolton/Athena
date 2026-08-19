@@ -32,6 +32,24 @@ from .plasticity import (
     ProtectedPlasticity,
     make_reasoning_cases,
 )
+from .representations import (
+    GroundedExample,
+    GroundedRepresentationSystem,
+    OperatorReport,
+    RawObservation,
+    ReasoningOperator,
+    RepresentationConfig,
+    RepresentationReport,
+    RepresentationState,
+    make_visual_cases,
+    make_visual_observations,
+)
+from .readiness import (
+    AGIReadinessReport,
+    EvidenceLevel,
+    ReadinessGate,
+    assess_agi_readiness,
+)
 from .skills import (
     ConsolidationReport,
     Example,
@@ -143,6 +161,20 @@ __all__ = [
     "PlasticSkill",
     "ProtectedPlasticity",
     "make_reasoning_cases",
+    "RawObservation",
+    "GroundedExample",
+    "RepresentationConfig",
+    "RepresentationState",
+    "RepresentationReport",
+    "ReasoningOperator",
+    "OperatorReport",
+    "GroundedRepresentationSystem",
+    "make_visual_observations",
+    "make_visual_cases",
+    "EvidenceLevel",
+    "ReadinessGate",
+    "AGIReadinessReport",
+    "assess_agi_readiness",
     "Regime",
     "SwitchingWorld",
     "shifting_world",
@@ -151,4 +183,4 @@ __all__ = [
     "linear_mse",
     "zero_mse",
 ]
-__version__ = "0.7.0"
+__version__ = "0.8.0"
