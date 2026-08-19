@@ -25,3 +25,5 @@ jobs:
       - run: python tests/test_apprentice.py
       - run: python tests/test_readiness.py
       - run: python tests/test_playground.py
+      - run: python tests/test_transfer.py
+      - run: python tests/test_continual.py

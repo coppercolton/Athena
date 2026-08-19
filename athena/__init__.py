@@ -41,6 +41,13 @@ from .foundation import (
 )
 from .memory import Belief, BeliefStore, Episode, EpisodicMemory, HashingEncoder
 from .precision import Precision, VolatilityTracker
+from .continual import (
+    ContinualConfig,
+    ContinualLearner,
+    Experience,
+    LearningReport,
+    SharedPlasticity,
+)
 from .transfer import Example, ProgressiveRegistry, TransferConfig, TransferReport
 from .plasticity import (
     NeuralExample,
@@ -188,6 +195,11 @@ __all__ = [
     "OnlineRLS",
     "Precision",
     "ProgressiveRegistry",
+    "ContinualLearner",
+    "ContinualConfig",
+    "SharedPlasticity",
+    "Experience",
+    "LearningReport",
     "TransferConfig",
     "TransferReport",
     "VolatilityTracker",

@@ -772,6 +772,63 @@ For each observation Athena:
 Multi-step `predict(horizon=n)` runs both models on their own predictions without
 consuming observations.
 
+## Learning that does not stop at deployment
+
+The protected-expert design freezes everything that already works. Measured on
+this repository's own registries: learning two skills changes the third skill's
+accuracy by 0.000000, and learning three more changes the first skill's accuracy
+by 0.000000. Bit-for-bit, in both the representation path and the plasticity
+path. Nothing helps anything, because nothing may touch anything.
+
+Two modules move off that corner, and they are different distances along the
+same tradeoff.
+
+`athena/transfer.py` keeps every earlier expert bit-for-bit frozen but lets a
+*new* skill read their internal features. Retention stays exactly perfect and
+every promotion and rollback guarantee still holds, while new skills get
+cheaper. On a curriculum where each task reuses the previous task's feature, 12
+seeds, 96 examples per skill, the deepest reuse task improves from 0.615 to
+0.756 held-out accuracy (**+0.141**) with forgetting of **+0.000000**. Transfer
+to a genuinely unrelated task is slightly negative (about −0.01): the gain is
+paid for by relatedness, not free.
+
+`athena/continual.py` goes the rest of the way — one shared trunk that never
+stops training, with per-skill heads on top. Forgetting is held down by replay,
+consolidation (diagonal-Fisher EWC), and rollback to the last checkpoint rather
+than by freezing. There is no separate training mode; `observe()` is the only
+way experience enters and it is available for as long as the process runs.
+
+The baseline below is *the same class* with `freeze_trunk=True`: identical
+layers, initialisation, seeds, and data, with only the heads still training.
+Comparing against `athena/plasticity.py` instead would have compared two
+different networks and measured the implementations rather than the mechanism.
+
+| 10 seeds, 96 examples/skill | frozen trunk | always training |
+|---|---:|---:|
+| skill 2 (reuses skill 1) | 0.694 | **0.941** |
+| skill 3 (extends it) | 0.739 | 0.757 |
+| skill 4 (composes both) | 0.645 | **0.855** |
+| **mean, skills 2–4** | **0.693** | **0.851** |
+| skill 1 across the deployment | +0.0012 | −0.0098 |
+
+**Letting the trunk keep training is worth +0.158 on new skills and costs
+−0.010 on the oldest one.** Tightening `retention_tolerance` to 0.02 moves it to
++0.102 and −0.002, so the trade is a dial rather than a fixed price.
+
+One negative result worth recording: individual runs do show an old skill
+*improving* while later skills are learned, but averaged over seeds the change
+stays slightly negative. Backward transfer was not achieved on this benchmark —
+only bounded forgetting. A frozen trunk pins that number to zero by
+construction and can never produce either outcome.
+
+`SharedPlasticity` exposes the same `learn(name, training, validation)`
+interface as `ProtectedPlasticity`, so it drops into existing call sites.
+
+```
+python3 examples/never_stop_learning.py
+python3 examples/transfer_benchmark.py
+```
+
 ## Scientific position
 
 Predictive processing is an influential computational theory, not a settled

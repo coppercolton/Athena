@@ -58,7 +58,7 @@ class TransferConfig:
     epochs: int = 400
     learning_rate: float = 0.15
     max_lateral_sources: int = 6
-    validation_threshold: float = 0.6
+    validation_threshold: float = 0.51
     seed: int = 0
 
     def __post_init__(self) -> None:
