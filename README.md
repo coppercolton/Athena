@@ -1,7 +1,7 @@
 # Athena
 
 Athena is an experimental architecture for intelligence that keeps learning
-after deployment. It combines six complementary systems:
+after deployment. It combines seven complementary systems:
 
 - a numeric continual world model that predicts the next observation and
   updates online; and
@@ -18,7 +18,12 @@ after deployment. It combines six complementary systems:
   outcome-labelled experience and promotes new weights only after held-out and
   regression evaluation; and
 - a grounded representation layer that compresses raw sensor grids into a
-  learned latent state and reuses that state across protected reasoning heads.
+  learned latent state and reuses that state across protected reasoning heads;
+  and
+- a persistent apprenticeship runtime that accepts repository tasks, predicts
+  before each action, works only in disposable clones, verifies outcomes,
+  retains experience in a hash-chained ledger, and promotes repeated successful
+  traces into reusable procedures.
 
 Learning is explicit rather than hidden behind chat history. Predictions are
 recorded before outcomes arrive, experience is the data, and neural candidate
@@ -38,10 +43,129 @@ mean error must improve monotonically or that every environment is predictable.
 It means its learning machinery remains plastic, bounded, inspectable,
 testable, and resumable while observations and consequences keep arriving.
 
-## Try Athena — v0.8
+## Try Athena — v0.9
 
-V0.8 exposes five different kinds of post-deployment learning in one local
-browser interface:
+V0.9 is Athena's first persistent, continuously running agent loop for a real
+domain: local software repositories. Here, “live” means the worker can stay
+running, recover expired task leases after restart, accumulate verified
+experience, and use retained procedures on later tasks. It does **not** mean
+sentience, unrestricted autonomy, or permission to rewrite its own safeguards.
+
+```mermaid
+flowchart TD
+    Q["Persistent task queue"] --> C["Disposable repository clone"]
+    C --> P["Predict next action"]
+    P --> T["Policy-approved tool"]
+    T --> O["Record observation"]
+    O --> V{"Independent checks pass?"}
+    V -- No --> L["Retain failure lesson"]
+    V -- Yes --> A["Export reviewable patch"]
+    A --> S["Shadow procedure"]
+    S --> G{"Repeated independent success?"}
+    G -- Yes --> R["Promote for reuse"]
+    G -- No --> Q
+    L --> Q
+    R --> Q
+```
+
+The foundation model proposes actions, but it cannot execute arbitrary shell
+commands. The local runtime exposes only file listing, reading, literal search,
+single-occurrence replacement, new-file creation, and exact verifier commands
+chosen by the user when the task is submitted. Paths must remain inside a
+disposable clone. The original repository is never edited; a successful task
+produces a patch in the artifact directory.
+
+### Run the live apprentice
+
+Install the checkout and initialize persistent state:
+
+```bash
+python3 -m pip install -e .
+athena-apprentice init
+```
+
+Queue a task with an observable goal and one or more exact checks:
+
+```bash
+athena-apprentice submit \
+  --repo /path/to/repository \
+  --kind fix-parser-edge-case \
+  --goal "Handle an empty token list without changing valid parses." \
+  --check "python -m pytest tests/test_parser.py"
+```
+
+The source must be a clean git working tree. This prevents uncommitted work from
+being silently omitted when Athena creates its disposable clone.
+
+Connect the OpenRouter reasoning backend and process one task:
+
+```bash
+export OPENROUTER_API_KEY="your-key"
+export OPENROUTER_MODEL="nvidia/nemotron-3-ultra-550b-a55b:free"
+athena-apprentice run
+```
+
+Or leave the bounded worker alive so it processes newly queued tasks:
+
+```bash
+athena-apprentice daemon --poll 2
+athena-apprentice status
+```
+
+Status reports the verified success rate, cumulative foundation-reasoner steps,
+procedure reuses, and mean prediction error in addition to queue, procedure,
+heartbeat, and ledger health. Those measurements distinguish accumulated state
+from actual improvement: a useful retained skill should preserve verification
+while reducing new reasoning work on later tasks.
+
+Failed attempts retain their verifier evidence as lessons. Requeue one unchanged
+with `athena-apprentice retry TASK_ID`, or teach it and retry with
+`athena-apprentice teach TASK_ID --instruction "..."`. The next model turn sees
+both the explicit human instruction and recent failure summaries for that task
+kind.
+
+The browser never receives the provider key, and neither the key nor raw
+provider requests/responses are written to the experience database. Validated
+tool decisions and their observations are retained as experience. Run an
+entirely offline, deterministic three-experience demonstration with:
+
+```bash
+python3 examples/live_apprentice.py
+```
+
+When OpenRouter is enabled, the goal, selected file contents, check output,
+prior failure lessons, and current action trace may be sent to that provider so
+it can choose the next tool. Do not submit confidential repositories unless the
+configured provider and its data policy are appropriate for them.
+
+The first two successful experiences remain reasoner-guided and independently
+verified. Only then is the identical edit procedure promoted; the third task
+reuses it with zero foundation calls. If that procedure later fails, Athena
+rejects it, starts again from a fresh clone, and returns control to the reasoner.
+
+### The safety boundary
+
+V0.9 is intentionally narrower than a general computer-use agent:
+
+- the source repository is read-only from Athena's perspective;
+- changes occur in exact, internally created disposable directories;
+- parent paths and symlinks that escape the clone are denied;
+- model-selected operations are checked against strict local schemas;
+- verifier commands use argv execution without a shell and a program allowlist;
+- every prediction and observation is appended to a tamper-evident hash chain;
+- patches are outputs for human review, not silently applied changes; and
+- procedures need repeated independent successes and are rolled back on failure.
+
+This is a containment boundary, not a hardened hostile-code sandbox. A verifier
+such as `python -m pytest` executes repository code with the worker's operating
+system privileges. Use trusted repositories and run the worker inside a VM or
+container before evaluating untrusted code. Network access is not granted as an
+Athena tool, but v0.9 does not enforce an operating-system network namespace.
+
+## Interactive learning playground
+
+The existing playground exposes five other kinds of post-deployment learning in
+one local browser interface:
 
 - **Representation learning:** give Athena raw two-channel 8×8 sensor grids.
   It learns a masked-reconstruction bottleneck, tests the latent state on unseen
@@ -156,11 +280,27 @@ virtual tools, acquire procedures in its constrained symbolic language, reason
 through a connected foundation model, and resume every learning subsystem after
 restart.
 
-It deliberately does **not** execute an arbitrary shell or connect the demo to
-external accounts. V0.8 executes registered tools only inside `OpaqueKVWorld`;
-the `ToolEnvironment` protocol is the boundary for future real integrations.
-External writes are denied by default. Moving beyond the sandbox requires a
-specific adapter, user authorization, task verifier, and rollback strategy.
+The playground deliberately does **not** execute an arbitrary shell or connect
+the demo to external accounts. Its tool tab still executes only inside
+`OpaqueKVWorld`. The separate v0.9 apprentice is the first real repository
+adapter and preserves the narrower boundary described above. External account
+writes remain denied.
+
+## What v0.9 established
+
+V0.9 turns Athena's earlier laboratory contracts into a restartable repository
+worker. The durable unit of learning is not an unverified chat transcript: it
+is a prediction/action/observation trace whose final patch passed user-supplied
+checks in an isolated clone. Immediate events enter episodic storage; repeated
+identical successful traces become shadow procedures; only independent task
+successes promote them into fast procedural reuse.
+
+The included behavioral tests cover source isolation, patch export, restart and
+lease recovery, action-before-observation ordering, hash-chain tamper detection,
+command and path denial, OpenRouter schema validation, multi-experience
+promotion, zero-reasoner reuse, and rollback with model-guided recovery. This is
+evidence for a bounded continual software apprentice—not general autonomous
+software engineering or AGI.
 
 ## What v0.8 established
 
@@ -661,23 +801,23 @@ Continuous updates alone are not enough. A credible forever learner needs:
 - explicit resource limits or memory will grow forever even if capability does
   not.
 
-Athena v0.8 implements early versions of these contracts across numeric streams,
+Athena v0.9 implements early versions of these contracts across numeric streams,
 outcome-scored agent decisions, constrained executable skills, permissioned
-virtual tool workflows, expandable neural experts, and a learned visual latent
-state, with a runnable interface and optional live foundation adapter. It now
-learns a small representation from raw sensor values and improves task-specific
-neural modules after deployment, but does not learn an open-ended multimodal
-representation space, improve the hosted foundation's general weights, connect
-itself to arbitrary real-world accounts, perform broad causal reasoning, form
-autonomous goals, or safely self-modify. The repository does not bundle or train
-a foundation model.
+virtual workflows, expandable neural experts, a learned visual latent state,
+and verified work in disposable repositories. It now learns small
+representations, task-specific neural modules, episodic lessons, and repeatedly
+validated procedures after deployment. It does not learn an open-ended
+multimodal representation space, improve the hosted foundation's general
+weights, connect itself to arbitrary real-world accounts, perform broad causal
+reasoning, form autonomous goals, or safely self-modify. The repository does
+not bundle or train a foundation model.
 
 ## Next research milestones
 
-1. Add opt-in adapters for real developer tools, starting with a disposable
-   filesystem workspace and test runner, with explicit per-tool authorization.
-2. Learn conditional, branching, and recovery procedures rather than only linear
-   workflows.
+1. Evaluate the repository apprentice on independent, procedurally generated
+   repair tasks and measure transfer, verifier gaming, and forgetting over time.
+2. Learn parameterized conditional, branching, and recovery procedures rather
+   than literal linear workflows.
 3. Extend learned representations from static synthetic grids to temporal,
    multimodal experience and ground them in actions and causal consequences.
 4. Evaluate improvement, transfer, forgetting, and poisoned-feedback resistance
@@ -691,7 +831,7 @@ a foundation model.
 
 ## Validation and layout
 
-The current regression suite passes **80 / 80** behavioral tests.
+The current regression suite passes **94 / 94** behavioral tests.
 
 ```bash
 python3 tests/test_athena.py          # 16 numeric world-model tests
@@ -700,9 +840,11 @@ python3 tests/test_skills.py          # 7 skill acquisition/retention tests
 python3 tests/test_tool_learning.py   # 15 tool, transfer, policy, rollback tests
 python3 tests/test_plasticity.py      # 8 neural promotion/retention tests
 python3 tests/test_representations.py # 9 latent reuse/transfer/rollback tests
+python3 tests/test_apprentice.py      # 14 persistence/isolation/learning tests
 python3 tests/test_readiness.py       # 4 fail-closed AGI audit tests
 python3 tests/test_playground.py      # 13 browser/API/foundation tests
 python3 examples/learned_representations.py
+python3 examples/live_apprentice.py
 python3 examples/representation_benchmark.py --seeds 10
 python3 examples/agi_readiness.py
 python3 examples/neural_plasticity.py
@@ -723,6 +865,8 @@ python3 examples/precision.py
 | `athena/context.py` | Bayesian regime inference and protected recruitment |
 | `athena/agent.py` | foundation-model boundary, decisions, outcome learning |
 | `athena/foundation.py` | offline demo, OpenAI, and OpenRouter model adapters |
+| `athena/apprentice.py` | persistent queue, disposable repositories, ledger, verifier, procedures |
+| `athena/apprentice_cli.py` | submit, teach, retry, run, daemon, and status commands |
 | `athena/plasticity.py` | neural experts, replay, promotion, rollback, checkpoints |
 | `athena/representations.py` | masked sensor encoder, latent state, grounded reasoning heads |
 | `athena/readiness.py` | mandatory fail-closed AGI evidence gates |
@@ -741,6 +885,7 @@ python3 examples/precision.py
 | `tests/test_tool_learning.py` | tool calls, validation, transfer, persistence, safety |
 | `tests/test_plasticity.py` | neural updates, transfer, retention, rollback, persistence |
 | `tests/test_representations.py` | raw perception, latent reuse, transfer, refinement, rollback |
+| `tests/test_apprentice.py` | real-repository isolation, persistence, policy, promotion, rollback |
 | `tests/test_readiness.py` | AGI audit conservatism and missing-evidence behavior |
 | `tests/test_playground.py` | live adapter contract and end-to-end browser API |
 

@@ -11,6 +11,23 @@ from .agent import (
     ScoredCandidate,
     StrategyKnowledge,
 )
+from .apprentice import (
+    ActionObservation,
+    ApprenticeConfig,
+    ApprenticeProcedure,
+    ApprenticeRuntime,
+    ApprenticeStore,
+    AttemptReport,
+    CheckCommand,
+    CheckResult,
+    DeveloperTask,
+    OpenRouterRepositoryReasoner,
+    RepositoryReasoner,
+    RepositorySandbox,
+    RuntimeStatus,
+    ScriptedRepositoryReasoner,
+    VerificationResult,
+)
 from .baselines import BaselineReport, OnlineRLS
 from .core import Athena, Config, StepReport
 from .foundation import (
@@ -108,6 +125,21 @@ __all__ = [
     "Decision",
     "OutcomeReport",
     "StrategyKnowledge",
+    "CheckCommand",
+    "DeveloperTask",
+    "ActionObservation",
+    "CheckResult",
+    "VerificationResult",
+    "AttemptReport",
+    "ApprenticeProcedure",
+    "RuntimeStatus",
+    "ApprenticeConfig",
+    "ApprenticeStore",
+    "RepositoryReasoner",
+    "ScriptedRepositoryReasoner",
+    "OpenRouterRepositoryReasoner",
+    "RepositorySandbox",
+    "ApprenticeRuntime",
     "DemoFoundation",
     "OpenAIResponsesFoundation",
     "OpenAIResponsesToolReasoner",
@@ -183,4 +215,4 @@ __all__ = [
     "linear_mse",
     "zero_mse",
 ]
-__version__ = "0.8.0"
+__version__ = "0.9.0"
