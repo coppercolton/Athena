@@ -1,9 +1,17 @@
 # Athena
 
-Athena is an experimental continual world model: it predicts the next thing it
-will observe, receives reality, measures the error, and updates itself online.
-There is no separate batch-training run. The observation stream *is* the data,
-and every reported error is made before the corresponding observation arrives.
+Athena is an experimental architecture for intelligence that keeps learning
+after deployment. It combines two complementary systems:
+
+- a numeric continual world model that predicts the next observation and
+  updates online; and
+- a provider-neutral agent layer that gives a stable pretrained foundation
+  model episodic memory, evidence-gated facts, and behavior learned from the
+  consequences of its own decisions.
+
+There is no hidden batch-training step in either learning loop. Predictions are
+recorded before outcomes arrive, experience is the data, and feedback changes
+future expectations without rewriting the foundation model after every event.
 
 ```text
 predict -> observe -> measure surprise -> infer context -> update -> predict
@@ -11,13 +19,104 @@ predict -> observe -> measure surprise -> infer context -> update -> predict
    +---------------------------------------------------------------+
 ```
 
-The long-term goal is a model that can keep learning without periodically being
-discarded and retrained. That does **not** mean error must improve monotonically
-or that every environment is predictable. It means the machinery remains
-plastic, calibrated, testable, and resumable for as long as observations keep
-arriving.
+The long-term goal is an intelligence that starts with broad pretrained
+knowledge and develops through its own lifetime of experience. That does **not**
+mean error must improve monotonically or that every environment is predictable.
+It means its learning machinery remains plastic, bounded, inspectable,
+testable, and resumable while observations and consequences keep arriving.
 
-## Quick start
+## What is new in v0.3
+
+V0.3 adds `AthenaAgent`, the bridge between broad pretrained intelligence and
+continual learning after deployment.
+
+### Stable foundation, adaptive experience
+
+A foundation model proposes candidate actions using its pretrained knowledge.
+Athena retrieves relevant past episodes and consolidated knowledge, predicts
+the reward of every candidate, and fuses the learned value with the
+foundation's prior. The real consequence is then revealed exactly once and
+updates a recursive contextual value model.
+
+This separation is intentional. Fine-tuning a large model on every interaction
+would let temporary noise, malicious feedback, and one unusual event corrupt
+general knowledge. Athena learns quickly in its external world model and only
+promotes repeated, source-labelled evidence into durable knowledge.
+
+```python
+from athena import AgentConfig, AthenaAgent, Candidate
+
+class MyFoundationModel:
+    def propose(self, situation, *, memories, facts, strategies, n):
+        # Replace this body with any hosted or local foundation model adapter.
+        return [
+            Candidate("email", "Send a detailed email", prior=0.75),
+            Candidate("text", "Send a concise text", prior=0.25),
+        ]
+
+agent = AthenaAgent(MyFoundationModel(), AgentConfig())
+
+decision = agent.decide(
+    "An urgent lead wants a showing tonight",
+    context_key="urgent-lead",
+)
+
+# The consequence arrives after Athena has committed its prediction.
+report = agent.learn(
+    decision.id,
+    reward=1.0,
+    observation="The lead replied and booked",
+    reliability=1.0,
+)
+
+# New facts remain provisional until independent evidence supports them.
+agent.learn_fact(
+    "downtown office closes",
+    "6 PM",
+    source="verified-calendar",
+)
+
+agent.save("experience.npz")
+agent = AthenaAgent.load("experience.npz", foundation=MyFoundationModel())
+```
+
+### Three learning timescales
+
+1. **Immediate adaptation:** recursive value models update after each measured
+   consequence and alter the next decision in the same context. A small
+   forgetting factor preserves a plasticity floor, so sustained new evidence
+   can reverse an old strategy instead of leaving it permanently frozen.
+2. **Episodic memory:** bounded memory retains trustworthy and surprising
+   experiences; similar situations retrieve both successes and failures.
+3. **Consolidated knowledge:** strategies need a confidence bound and minimum
+   effective sample count; factual claims need repeated, source-labelled
+   support. Contradictions reduce confidence instead of silently overwriting
+   the old belief.
+
+`adapt=False` resolves and scores a decision without changing any long-term
+state, providing the same frozen-evaluation contract as the numeric model.
+
+### Deployment-learning demonstration
+
+The included deterministic demo gives the foundation model a fixed general
+preference for email. In deployment, urgent leads actually respond to texts,
+while routine follow-ups still work best by email.
+
+| phase | first 5 reward | final 10 reward | final 10 squared error | final action |
+|---|---:|---:|---:|---|
+| new urgent context | 0.600 | **1.000** | 0.0090 | text |
+| different routine context | **1.000** | **1.000** | 0.0021 | email |
+| urgent context returns | **1.000** | **1.000** | 0.0018 | text |
+
+Athena changes the pretrained behavior, preserves the opposite policy in a
+different context, and recalls the learned exception immediately when its old
+context returns. Run the reproducible demo with:
+
+```bash
+python3 examples/experience_agent.py
+```
+
+## Numeric world-model quick start
 
 ```python
 from athena import Athena, Config
@@ -41,7 +140,7 @@ for observation in holdout:
     report = model.observe(observation, learn=False)
 ```
 
-## What is new in v0.2
+## What v0.2 established
 
 The original prototype showed that a predictive-coding hierarchy could improve
 online on smooth synthetic signals. V0.2 makes the claim harder to fool and
@@ -73,9 +172,9 @@ precision. There is no fixed mixing weight.
 - **Resumable learning:** checkpoints include fast beliefs, slow weights,
   uncertainty, context memory, histories, and random-generator state.
 
-## Architecture
+## Numeric world-model architecture
 
-Athena combines five mechanisms:
+The numeric layer combines five mechanisms:
 
 1. **Predictive-coding hierarchy.** Each level predicts the level below and its
    own next state. Latent beliefs settle against precision-weighted local errors
@@ -189,27 +288,31 @@ Continuous updates alone are not enough. A credible forever learner needs:
 - explicit resource limits or memory will grow forever even if capability does
   not.
 
-Athena v0.2 implements early versions of these contracts. It does not yet solve
-representation learning, causal reasoning, goal formation, action selection,
-or safe self-modification.
+Athena v0.3 implements early versions of these contracts across numeric streams
+and outcome-scored agent decisions. It does not yet solve representation
+learning, causal reasoning, autonomous goal formation, or safe
+self-modification. The provider-neutral interface can use a powerful foundation
+model, but the repository does not bundle or train one.
 
 ## Next research milestones
 
-1. Evaluate on real, non-stationary sensor and forecasting streams with multiple
-   seeds, noise levels, and ablations.
-2. Make predictions action-conditioned: predict what follows from each possible
-   action, act, then learn from the consequence.
-3. Learn compact representations for images or audio instead of consuming only
-   low-dimensional vectors.
-4. Add episodic consolidation for rare surprises and finite-capacity eviction
-   for obsolete contexts.
-5. Separate a protected evaluator from the learner so recursive changes cannot
-   redefine their own success criterion.
+1. Connect `AthenaAgent` to an actual foundation-model adapter and a real,
+   outcome-producing environment rather than the deterministic demonstration.
+2. Evaluate behavioral improvement, calibration, forgetting, and resistance to
+   poisoned feedback over long deployments and multiple seeds.
+3. Connect the action-conditioned agent layer to the numeric world model so
+   imagined sensory consequences can inform candidate selection.
+4. Learn compact representations for images and audio instead of using only
+   low-dimensional vectors and deterministic text hashing.
+5. Add offline reflection that proposes reusable abstractions while keeping a
+   protected evaluator responsible for promotion and rollback.
 
 ## Validation and layout
 
 ```bash
 python3 tests/test_athena.py          # 16 behavioral tests
+python3 tests/test_agent.py           # 8 deployment-learning tests
+python3 examples/experience_agent.py
 python3 examples/honest_benchmark.py
 python3 examples/continual_benchmark.py
 python3 examples/precision.py
@@ -219,11 +322,14 @@ python3 examples/precision.py
 |---|---|
 | `athena/core.py` | hierarchy, recursive memory fusion, loop, checkpoints |
 | `athena/context.py` | Bayesian regime inference and protected recruitment |
+| `athena/agent.py` | foundation-model boundary, decisions, outcome learning |
+| `athena/memory.py` | episodic retrieval and evidence-gated factual beliefs |
 | `athena/baselines.py` | online RLS and its prequential contract |
 | `athena/precision.py` | uncertainty and volatility estimation |
 | `athena/world.py` | deterministic synthetic worlds and simple baselines |
 | `examples/` | reproducible stationary and continual benchmarks |
-| `tests/test_athena.py` | behavioral claims and persistence contracts |
+| `tests/test_athena.py` | numeric behavioral claims and persistence contracts |
+| `tests/test_agent.py` | post-deployment adaptation, context, facts, checkpoints |
 
 Requires Python 3.10+ and NumPy:
 
