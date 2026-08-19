@@ -330,6 +330,38 @@ def test_service_learns_persists_and_transfers_an_unfamiliar_tool_workflow():
         assert replay["reasoner_steps"] == 0
 
 
+def test_service_grows_persists_and_runs_verified_neural_operator():
+    with tempfile.TemporaryDirectory() as directory:
+        state_path = Path(directory) / "state" / "athena.npz"
+        service = PlaygroundService(DemoFoundation(), state_path)
+        result = service.grow_neural_skill(
+            {
+                "name": "relational-balance",
+                "rule": "relative_balance",
+                "seed": 901,
+            }
+        )
+        report = result["report"]
+        assert report["promoted"] is True
+        assert report["weight_delta"] > 1.0
+        assert report["checksum_before"] != report["checksum_after"]
+        assert report["candidate_accuracy"] >= 0.95
+        assert result["transfer"]["passed"] is True
+        assert service.plasticity_path.exists()
+        assert result["state"]["plastic_skill_count"] == 1
+
+        restored = PlaygroundService(DemoFoundation(), state_path)
+        assert restored.state()["plastic_skills"][0]["name"] == "relational-balance"
+        prediction = restored.run_neural_skill(
+            {
+                "name": "relational-balance",
+                "input": [0.9, 0.8, -0.4, -0.3],
+            }
+        )
+        assert prediction["prediction"] == 1
+        assert prediction["probability"] > 0.5
+
+
 def _json_request(url, path, payload=None):
     data = None if payload is None else json.dumps(payload).encode("utf-8")
     outgoing = request.Request(
@@ -392,10 +424,24 @@ def test_browser_api_runs_the_full_prediction_feedback_loop():
             assert tool_learning["transfer"]["success"] is True
             assert tool_learning["state"]["tool_skill_count"] == 1
 
+            _, _, neural_learning = _json_request(
+                url,
+                "/api/plasticity/learn",
+                {
+                    "name": "http-neural-operator",
+                    "rule": "relative_balance",
+                    "seed": 902,
+                },
+            )
+            assert neural_learning["report"]["promoted"] is True
+            assert neural_learning["transfer"]["passed"] is True
+            assert neural_learning["state"]["plastic_skill_count"] == 1
+
             with request.urlopen(f"{url}/", timeout=5) as response:
                 page = response.read().decode("utf-8")
             assert "Continual Intelligence Lab" in page
             assert "Enter an unfamiliar workspace" in page
+            assert "Grow a neural reasoning operator" in page
         finally:
             server.shutdown()
             server.server_close()

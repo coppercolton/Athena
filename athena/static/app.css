@@ -253,6 +253,17 @@ textarea::placeholder {
     rgba(13, 19, 27, 0.94);
 }
 
+.neural-plasticity-lab {
+  border-color: rgba(252, 211, 77, 0.28);
+  background:
+    linear-gradient(135deg, rgba(217, 119, 6, 0.10), transparent 48%),
+    rgba(13, 19, 27, 0.94);
+}
+
+.neural-learning-form {
+  grid-template-columns: minmax(220px, 1fr) auto;
+}
+
 .skill-lab-heading {
   display: flex;
   gap: 24px;

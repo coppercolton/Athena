@@ -10,6 +10,10 @@ const skillRunForm = document.querySelector("#skill-run-form");
 const skillRunOutput = document.querySelector("#skill-run-output");
 const toolLearningForm = document.querySelector("#tool-learning-form");
 const toolLearningResult = document.querySelector("#tool-learning-result");
+const plasticityLearningForm = document.querySelector("#plasticity-learning-form");
+const plasticityLearningResult = document.querySelector("#plasticity-learning-result");
+const plasticityRunForm = document.querySelector("#plasticity-run-form");
+const plasticityRunOutput = document.querySelector("#plasticity-run-output");
 
 async function api(path, options = {}) {
   const response = await fetch(path, {
@@ -269,6 +273,87 @@ function renderToolSkills(items) {
   });
 }
 
+function renderPlasticSkills(items) {
+  const container = document.querySelector("#plastic-skill-list");
+  const select = document.querySelector("#plasticity-select");
+  const previousSelection = select.value;
+  document.querySelector("#plastic-skill-count").textContent = items.length;
+  container.replaceChildren();
+  select.replaceChildren();
+  container.className = "state-list";
+  if (!items.length) {
+    container.classList.add("empty-copy");
+    container.textContent = "No neural operators yet.";
+    plasticityRunForm.hidden = true;
+    return;
+  }
+  items.forEach((item) => {
+    const card = element("div", "state-item");
+    const top = element("div", "state-item-top");
+    top.append(element("strong", "", item.name));
+    top.append(element("small", "status-preferred", `v${item.version}`));
+    card.append(top);
+    card.append(
+      element(
+        "p",
+        "",
+        `${percent(item.validation_accuracy)} verified · ${item.replay_examples} replay cases · ${item.checksum}`,
+      ),
+    );
+    container.append(card);
+
+    const option = element("option", "", item.name);
+    option.value = item.name;
+    select.append(option);
+  });
+  if ([...select.options].some((option) => option.value === previousSelection)) {
+    select.value = previousSelection;
+  }
+  plasticityRunForm.hidden = false;
+}
+
+function renderPlasticityLearning(payload) {
+  const report = payload.report;
+  plasticityLearningResult.replaceChildren();
+  plasticityLearningResult.className = "skill-trial-result";
+  const summary = element("div", "trial-summary");
+  [
+    [percent(report.before_accuracy), "Before learning"],
+    [percent(report.candidate_accuracy), "Held-out accuracy"],
+    [percent(payload.transfer.accuracy), "Magnitude transfer"],
+    [report.weight_delta.toFixed(2), "Neural weight change"],
+  ].forEach(([value, label]) => {
+    const metric = element("div", "trial-metric");
+    metric.append(element("strong", "", value));
+    metric.append(element("small", "", label));
+    summary.append(metric);
+  });
+  plasticityLearningResult.append(summary);
+
+  const log = element("div", "experiment-log");
+  [
+    ["candidate", `${report.training_examples} experiences changed isolated weights`],
+    ["verification", `${report.validation_examples} unseen cases · ${percent(report.candidate_accuracy)}`],
+    ["replay", `${report.replay_examples} cases protected · ${percent(report.regression_accuracy)}`],
+    ["parameters", `${report.checksum_before} → ${report.checksum_after}`],
+  ].forEach(([label, value]) => {
+    const row = element("div");
+    row.append(element("span", "", label));
+    row.append(element("span", "", value));
+    log.append(row);
+  });
+  plasticityLearningResult.append(log);
+  plasticityLearningResult.append(
+    element(
+      "div",
+      "feedback-result",
+      report.promoted
+        ? `Promoted neural expert v${report.version}: ${report.reason}.`
+        : `Rolled back: ${report.reason}.`,
+    ),
+  );
+}
+
 function renderToolLearning(payload) {
   const learning = payload.learning;
   const acquisition = learning.acquisition;
@@ -378,6 +463,7 @@ function renderState(state) {
   renderFacts(state.beliefs || []);
   renderSkills(state.skills || []);
   renderToolSkills(state.tool_skills || []);
+  renderPlasticSkills(state.plastic_skills || []);
 }
 
 function updateToolGoalFields() {
@@ -418,6 +504,52 @@ toolLearningForm.addEventListener("submit", async (event) => {
   } finally {
     submit.disabled = false;
     submit.textContent = "Learn another workflow";
+  }
+});
+
+plasticityLearningForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  clearError();
+  const submit = plasticityLearningForm.querySelector("button");
+  const data = new FormData(plasticityLearningForm);
+  const now = Date.now();
+  submit.disabled = true;
+  submit.textContent = "Training and protecting…";
+  try {
+    const rule = String(data.get("rule"));
+    const payload = await api("/api/plasticity/learn", {
+      method: "POST",
+      body: JSON.stringify({
+        name: `${rule.replaceAll("_", "-")}-${now}`,
+        rule,
+        seed: now % 1000000,
+      }),
+    });
+    renderPlasticityLearning(payload);
+    renderState(payload.state);
+  } catch (error) {
+    showError(error);
+  } finally {
+    submit.disabled = false;
+    submit.textContent = "Train another neural expert";
+  }
+});
+
+plasticityRunForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  clearError();
+  try {
+    const data = new FormData(plasticityRunForm);
+    const input = JSON.parse(String(data.get("input")));
+    if (!Array.isArray(input)) throw new Error("Input must be a JSON array");
+    const payload = await api("/api/plasticity/run", {
+      method: "POST",
+      body: JSON.stringify({ name: data.get("name"), input }),
+    });
+    plasticityRunOutput.textContent = `${JSON.stringify(payload.input)} → ${payload.prediction} (${percent(payload.probability)} confidence)`;
+    plasticityRunOutput.hidden = false;
+  } catch (error) {
+    showError(error);
   }
 });
 
