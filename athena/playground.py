@@ -22,8 +22,22 @@ from typing import Any
 import webbrowser
 
 from .agent import AgentConfig, AthenaAgent, Decision, FoundationModel
-from .foundation import DemoFoundation, FoundationError, OpenAIResponsesFoundation
+from .foundation import (
+    DemoFoundation,
+    FoundationError,
+    OpenAIResponsesFoundation,
+    OpenAIResponsesToolReasoner,
+)
 from .skills import NovelTaskLearner, SkillRegistry
+from .tool_learning import (
+    DemoToolReasoner,
+    OpaqueKVWorld,
+    ToolGoal,
+    ToolLearningAgent,
+    ToolReasoner,
+    ToolSkillRegistry,
+    make_validation_cases,
+)
 
 
 MAX_REQUEST_BYTES = 1_000_000
@@ -43,11 +57,15 @@ class PlaygroundService:
         state_path: str | Path,
         *,
         config: AgentConfig | None = None,
+        tool_reasoner: ToolReasoner | None = None,
     ) -> None:
         self.foundation = foundation
         self.state_path = Path(state_path).expanduser().resolve()
         self.skill_path = self.state_path.with_name(
             f"{self.state_path.stem}.skills.json"
+        )
+        self.tool_skill_path = self.state_path.with_name(
+            f"{self.state_path.stem}.tool-skills.json"
         )
         self._lock = threading.RLock()
         if self.state_path.exists():
@@ -60,6 +78,21 @@ class PlaygroundService:
             else SkillRegistry()
         )
         self.skill_learner = NovelTaskLearner(registry=registry)
+        tool_registry = (
+            ToolSkillRegistry.load(self.tool_skill_path)
+            if self.tool_skill_path.exists()
+            else ToolSkillRegistry()
+        )
+        if tool_reasoner is None:
+            tool_reasoner = (
+                OpenAIResponsesToolReasoner.from_foundation(foundation)
+                if isinstance(foundation, OpenAIResponsesFoundation)
+                else DemoToolReasoner()
+            )
+        self.tool_agent = ToolLearningAgent(
+            reasoner=tool_reasoner,
+            registry=tool_registry,
+        )
 
     @property
     def backend_name(self) -> str:
@@ -73,6 +106,9 @@ class PlaygroundService:
 
     def _save_skills(self) -> None:
         self.skill_learner.registry.save(self.skill_path)
+
+    def _save_tool_skills(self) -> None:
+        self.tool_agent.registry.save(self.tool_skill_path)
 
     def decide(self, payload: dict[str, Any]) -> dict[str, object]:
         situation = str(payload.get("situation", ""))
@@ -172,6 +208,93 @@ class PlaygroundService:
                 "output": self.skill_learner.registry.run(name, values),
             }
 
+    @staticmethod
+    def _tool_goal(payload: dict[str, Any], *, prefix: str = "") -> ToolGoal:
+        kind = str(payload.get(f"{prefix}kind", payload.get("kind", "store")))
+        if kind not in ("store", "update", "delete"):
+            raise ValueError("kind must be store, update, or delete")
+        key = str(payload.get(f"{prefix}key", f"{prefix or 'training-'}record"))
+        value = (
+            None
+            if kind == "delete"
+            else str(payload.get(f"{prefix}value", f"{prefix or 'training-'}value"))
+        )
+        return ToolGoal(kind, key, value)
+
+    def learn_tool_workflow(self, payload: dict[str, Any]) -> dict[str, object]:
+        """Learn a workflow in one opaque world and prove cross-world transfer."""
+
+        with self._lock:
+            seed = int(payload.get("seed", len(self.tool_agent.registry) + 101))
+            goal = self._tool_goal(payload)
+            default_name = f"{goal.kind}-workflow-{len(self.tool_agent.registry) + 1}"
+            name = str(payload.get("name", default_name)).strip()
+            if not name:
+                raise ValueError("tool skill name is required")
+            if len(name) > 120:
+                raise ValueError("tool skill name must be at most 120 characters")
+            initial = (
+                {goal.key: "previous-value"}
+                if goal.kind in ("update", "delete")
+                else {}
+            )
+            training_world = OpaqueKVWorld(seed, initial)
+            report = self.tool_agent.learn(
+                name,
+                training_world,
+                goal,
+                validation_cases=make_validation_cases(seed, goal.kind),
+            )
+            if report.consolidated:
+                self._save_tool_skills()
+
+            transfer_goal = self._tool_goal(payload, prefix="transfer_")
+            # The stored procedure is specific to one task family. Make the
+            # default transfer match it even when only `kind` was supplied.
+            if f"transfer_kind" not in payload:
+                transfer_goal = ToolGoal(
+                    goal.kind,
+                    str(payload.get("transfer_key", "unseen-transfer-record")),
+                    None
+                    if goal.kind == "delete"
+                    else str(payload.get("transfer_value", "unseen-transfer-value")),
+                )
+            transfer_initial = (
+                {transfer_goal.key: "different-previous-value"}
+                if transfer_goal.kind in ("update", "delete")
+                else {}
+            )
+            transfer_world = OpaqueKVWorld(seed + 10_000, transfer_initial)
+            transfer = (
+                self.tool_agent.execute_skill(
+                    name,
+                    transfer_world,
+                    transfer_goal,
+                )
+                if report.consolidated
+                else None
+            )
+            return {
+                "learning": asdict(report),
+                "transfer": None if transfer is None else asdict(transfer),
+                "state": self.state(),
+            }
+
+    def run_tool_skill(self, payload: dict[str, Any]) -> dict[str, object]:
+        with self._lock:
+            name = str(payload.get("name", "")).strip()
+            skill = self.tool_agent.registry.get(name)
+            goal_payload = dict(payload)
+            goal_payload["kind"] = skill.task_kind
+            goal = self._tool_goal(goal_payload)
+            initial = (
+                {goal.key: str(payload.get("previous_value", "previous-value"))}
+                if goal.kind in ("update", "delete")
+                else {}
+            )
+            world = OpaqueKVWorld(int(payload.get("seed", 50_001)), initial)
+            return {"run": asdict(self.tool_agent.execute_skill(name, world, goal))}
+
     def state(self) -> dict[str, object]:
         with self._lock:
             episodes = [asdict(item) for item in reversed(self.agent.memory.episodes[-20:])]
@@ -194,6 +317,18 @@ class PlaygroundService:
                 }
                 for item in self.skill_learner.registry.all()
             ]
+            tool_skills = [
+                {
+                    "name": item.name,
+                    "task_kind": item.task_kind,
+                    "steps": [asdict(step) for step in item.steps],
+                    "required_capabilities": item.required_capabilities,
+                    "version": item.version,
+                    "confidence": item.confidence,
+                    "validation_worlds": len(item.validations),
+                }
+                for item in self.tool_agent.registry.all()
+            ]
             return {
                 "backend": self.backend_name,
                 "state_path": str(self.state_path),
@@ -205,6 +340,8 @@ class PlaygroundService:
                 "total_experiences": len(self.agent.memory),
                 "skills": skills,
                 "skill_count": len(skills),
+                "tool_skills": tool_skills,
+                "tool_skill_count": len(tool_skills),
             }
 
 
@@ -216,7 +353,7 @@ def make_handler(service: PlaygroundService):
     """Create an isolated request-handler class bound to one service."""
 
     class Handler(BaseHTTPRequestHandler):
-        server_version = "AthenaPlayground/0.5"
+        server_version = "AthenaPlayground/0.6"
 
         def _json(self, value: object, status: HTTPStatus = HTTPStatus.OK) -> None:
             encoded = json.dumps(value, ensure_ascii=False).encode("utf-8")
@@ -276,6 +413,8 @@ def make_handler(service: PlaygroundService):
                     "/api/facts": service.learn_fact,
                     "/api/skills/discover": service.discover_skill,
                     "/api/skills/run": service.run_skill,
+                    "/api/tools/learn": service.learn_tool_workflow,
+                    "/api/tools/run": service.run_tool_skill,
                 }
                 if self.path not in routes:
                     self._json({"error": "not found"}, HTTPStatus.NOT_FOUND)

@@ -1,7 +1,7 @@
 # Athena
 
 Athena is an experimental architecture for intelligence that keeps learning
-after deployment. It combines three complementary systems:
+after deployment. It combines four complementary systems:
 
 - a numeric continual world model that predicts the next observation and
   updates online; and
@@ -10,7 +10,10 @@ after deployment. It combines three complementary systems:
   consequences of its own decisions; and
 - a verified procedural skill layer that identifies knowledge gaps, learns an
   executable rule through instruction or active experimentation, tests it on
-  held-out cases, and retains it without rewriting earlier skills.
+  held-out cases, and retains it without rewriting earlier skills; and
+- a permissioned tool-learning agent that explores unfamiliar operations,
+  predicts results before acting, verifies real state, and compiles successful
+  traces into reusable workflows that bind to differently named tools.
 
 There is no hidden batch-training step in any learning loop. Predictions are
 recorded before outcomes arrive, experience is the data, and feedback changes
@@ -28,11 +31,15 @@ mean error must improve monotonically or that every environment is predictable.
 It means its learning machinery remains plastic, bounded, inspectable,
 testable, and resumable while observations and consequences keep arriving.
 
-## Try Athena — v0.5
+## Try Athena — v0.6
 
-V0.5 exposes two different kinds of post-deployment learning in one local
+V0.6 exposes three different kinds of post-deployment learning in one local
 browser interface:
 
+- **Tool-workflow learning:** send Athena into an opaque virtual workspace. It
+  inspects manuals, uses only policy-approved tools, snapshots reversible writes,
+  verifies the goal, and tests the compiled workflow in worlds with new tool
+  names and task values.
 - **Capability learning:** give Athena an unrevealed black-box sequence world.
   It reports what it does not know, chooses experiments, induces a procedure,
   verifies it independently, stores it, and runs it on inputs not seen during
@@ -63,9 +70,9 @@ also provides:
 athena-playground
 ```
 
-The demo backend and skill world are deterministic rather than disguised
-language models. They let you test Athena's post-deployment learning immediately
-without credentials or network access.
+The demo backend, tool workspace, and symbolic skill world are deterministic
+rather than disguised language models. They let you test Athena's
+post-deployment learning immediately without credentials or network access.
 
 ### Connect broad foundation intelligence
 
@@ -78,29 +85,97 @@ export OPENAI_MODEL="gpt-5.6"
 python3 -m athena.playground --foundation openai
 ```
 
-The adapter uses the Responses API with strict Structured Outputs for candidate
-actions. You can select another compatible model through `OPENAI_MODEL` or
-`--model`. See the official [Structured Outputs documentation](https://developers.openai.com/api/docs/guides/structured-outputs).
+The live adapter uses the Responses API with strict Structured Outputs for
+candidate actions and strict function tools for unfamiliar-tool decisions. The
+permission policy still runs locally after the model selects a call. You can
+select another compatible model through `OPENAI_MODEL` or `--model`. See the
+official [Structured Outputs](https://developers.openai.com/api/docs/guides/structured-outputs)
+and [function calling](https://developers.openai.com/api/docs/guides/function-calling)
+documentation.
 
 Experience state is checkpointed after every prediction, outcome, and factual
-update at `~/.athena/playground.npz` by default; verified skills are stored
-beside it in `~/.athena/playground.skills.json`. Use `--state PATH` for another
-identity or experiment. Because live requests include the current task and
-retrieved learning context, do not place sensitive information in the agent
-unless it is appropriate to send to the configured model provider.
+update at `~/.athena/playground.npz` by default. Symbolic skills are stored in
+`~/.athena/playground.skills.json`, and verified tool workflows in
+`~/.athena/playground.tool-skills.json`. Use `--state PATH` for another identity
+or experiment. Because live requests include the current task and retrieved
+learning context, do not place sensitive information in the agent unless it is
+appropriate to send to the configured model provider.
 
 ### What the playground can and cannot do
 
-It can acquire and execute procedures in its constrained skill language, reason
-through a connected foundation model, learn which proposed actions work in
-different contexts, remember qualitative outcomes, accept source-labelled
-facts, revise strategies when the world changes, and resume both experience and
-skill state after restart.
+It can learn permissioned workflows across differently named virtual tools,
+acquire procedures in its constrained symbolic language, reason through a
+connected foundation model, learn which proposed actions work in different
+contexts, remember qualitative outcomes, accept source-labelled facts, revise
+strategies when the world changes, and resume experience and skill state after
+restart.
 
-It deliberately does **not** execute arbitrary tools or external actions yet.
-The selected response is a proposed next action for the user. Autonomous tool
-execution requires permissions, a sandbox, action-specific verifiers, and
-rollback before trial-and-error learning can be made responsible.
+It deliberately does **not** execute an arbitrary shell or connect the demo to
+external accounts. V0.6 executes registered tools only inside `OpaqueKVWorld`;
+the `ToolEnvironment` protocol is the boundary for future real integrations.
+External writes are denied by default. Moving beyond the sandbox requires a
+specific adapter, user authorization, task verifier, and rollback strategy.
+
+## What v0.6 established
+
+V0.6 turns a successful experience into a reusable tool procedure instead of
+only an episode or action score. In each deployment, record-store operations are
+assigned opaque names. Athena must inspect manuals to identify semantic
+capabilities, predict each call's result, and accomplish a structured goal.
+
+The lifecycle is:
+
+1. state the knowledge gap: tool names and semantics are unknown;
+2. inspect tool manuals to learn capability bindings;
+3. snapshot before every reversible write;
+4. execute one permission-checked call at a time;
+5. compare predicted success with the observed result;
+6. let the environment independently verify final state;
+7. compile raw calls into parameterized semantic steps;
+8. require success in two held-out worlds before consolidation; and
+9. bind the retained procedure to differently named tools after restart.
+
+A stored workflow refers to capabilities such as `write_value` and
+`read_value`, not deployment-specific tool names such as `gaia` or `iris`.
+Arguments learned from the first task become placeholders such as `$goal.key`
+and `$goal.value`. That is what lets the procedure transfer instead of replaying
+the training calls.
+
+### Permission and verification boundary
+
+- Registered tools declare `read`, `reversible_write`, or `external_write`.
+- The default policy permits only reads and reversible writes.
+- A reasoner cannot create a callable tool by naming one.
+- Every reversible write receives a pre-call snapshot.
+- A failed write is rolled back before another decision.
+- Model-selected `finish_task` never determines success; the environment does.
+- Skills with fewer than two independent validation worlds remain provisional.
+
+The OpenAI adapter presents each available operation as a strict function tool,
+disables parallel tool calls, and requests one action at a time. The API key
+remains server-side and is excluded from prompts and checkpoints.
+
+### Procedural multi-world benchmark
+
+The benchmark covers store, update, and delete tasks across 30 random seeds.
+Every training, validation, and transfer world independently renames all four
+operations. Transfer tasks also use unseen keys and values.
+
+| measure | result |
+|---|---:|
+| training worlds solved | **90 / 90** |
+| held-out validation worlds | **180 / 180** |
+| workflows consolidated | **90 / 90** |
+| renamed-world transfers | **90 / 90** |
+| mean acquisition decisions | **6.44** |
+| new foundation decisions during retained transfer | **0** |
+
+Run the transparent mission and full benchmark with:
+
+```bash
+python3 examples/tool_learning_agent.py
+python3 examples/tool_agent_benchmark.py
+```
 
 ## What v0.5 established
 
@@ -416,19 +491,20 @@ Continuous updates alone are not enough. A credible forever learner needs:
 - explicit resource limits or memory will grow forever even if capability does
   not.
 
-Athena v0.5 implements early versions of these contracts across numeric streams,
-outcome-scored agent decisions, and constrained executable skills, with a
-runnable interface and optional live foundation adapter. It does not yet learn
-an open-ended representation space, improve the neural foundation's weights,
+Athena v0.6 implements early versions of these contracts across numeric streams,
+outcome-scored agent decisions, constrained executable skills, and permissioned
+virtual tool workflows, with a runnable interface and optional live foundation
+adapter. It does not yet learn an open-ended representation space, improve the
+neural foundation's weights, connect itself to arbitrary real-world accounts,
 perform broad causal reasoning, form autonomous goals, or safely self-modify.
 The repository does not bundle or train a foundation model.
 
 ## Next research milestones
 
-1. Expand skill induction beyond the fixed sequence DSL into procedurally novel
-   tool environments while keeping independent, task-specific verifiers.
-2. Add permissioned tools and a sandbox so Athena can safely try reversible
-   steps instead of only proposing them.
+1. Add opt-in adapters for real developer tools, starting with a disposable
+   filesystem workspace and test runner, with explicit per-tool authorization.
+2. Learn conditional, branching, and recovery procedures rather than only linear
+   workflows.
 3. Learn representations and reusable reasoning operators from instruction,
    demonstration, correction, and trial—not only select existing primitives.
 4. Evaluate improvement, transfer, forgetting, and poisoned-feedback resistance
@@ -446,7 +522,10 @@ The repository does not bundle or train a foundation model.
 python3 tests/test_athena.py          # 16 numeric world-model tests
 python3 tests/test_agent.py           # 8 deployment-learning tests
 python3 tests/test_skills.py          # 7 skill acquisition/retention tests
-python3 tests/test_playground.py      # 7 browser/API/foundation tests
+python3 tests/test_tool_learning.py   # 12 tool, transfer, policy, rollback tests
+python3 tests/test_playground.py      # 8 browser/API/foundation tests
+python3 examples/tool_learning_agent.py
+python3 examples/tool_agent_benchmark.py
 python3 examples/novel_skill_learning.py
 python3 examples/skill_benchmark.py
 python3 examples/experience_agent.py
@@ -463,6 +542,7 @@ python3 examples/precision.py
 | `athena/foundation.py` | offline demo and structured live model adapter |
 | `athena/memory.py` | episodic retrieval and evidence-gated factual beliefs |
 | `athena/skills.py` | knowledge gaps, active induction, verification, skill registry |
+| `athena/tool_learning.py` | permission policy, unfamiliar tools, workflow compilation |
 | `athena/playground.py` | local server, persistent API, and launch command |
 | `athena/static/` | browser interface for tasks, outcomes, and memory |
 | `athena/baselines.py` | online RLS and its prequential contract |
@@ -472,6 +552,7 @@ python3 examples/precision.py
 | `tests/test_athena.py` | numeric behavioral claims and persistence contracts |
 | `tests/test_agent.py` | post-deployment adaptation, context, facts, checkpoints |
 | `tests/test_skills.py` | induction, instruction, transfer, composition, regression |
+| `tests/test_tool_learning.py` | tool calls, validation, transfer, persistence, safety |
 | `tests/test_playground.py` | live adapter contract and end-to-end browser API |
 
 Requires Python 3.10+ and NumPy:

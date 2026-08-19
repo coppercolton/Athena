@@ -185,6 +185,42 @@ def test_service_discovers_persists_and_executes_a_verified_skill():
         assert isinstance(executed["output"], tuple)
 
 
+def test_service_learns_persists_and_transfers_an_unfamiliar_tool_workflow():
+    with tempfile.TemporaryDirectory() as directory:
+        state_path = Path(directory) / "state" / "athena.npz"
+        service = PlaygroundService(DemoFoundation(), state_path)
+        result = service.learn_tool_workflow(
+            {
+                "name": "store-workflow",
+                "kind": "store",
+                "key": "new-lead",
+                "value": "booked",
+                "seed": 123,
+            }
+        )
+        learning = result["learning"]
+        assert learning["acquisition"]["success"] is True
+        assert learning["consolidated"] is True
+        assert len(learning["validations"]) == 2
+        assert result["transfer"]["success"] is True
+        assert result["transfer"]["reasoner_steps"] == 0
+        assert result["state"]["tool_skill_count"] == 1
+        assert service.tool_skill_path.exists()
+
+        restored = PlaygroundService(DemoFoundation(), state_path)
+        assert restored.state()["tool_skills"][0]["name"] == "store-workflow"
+        replay = restored.run_tool_skill(
+            {
+                "name": "store-workflow",
+                "key": "restart-key",
+                "value": "restart-value",
+                "seed": 456,
+            }
+        )["run"]
+        assert replay["success"] is True
+        assert replay["reasoner_steps"] == 0
+
+
 def _json_request(url, path, payload=None):
     data = None if payload is None else json.dumps(payload).encode("utf-8")
     outgoing = request.Request(
@@ -232,10 +268,25 @@ def test_browser_api_runs_the_full_prediction_feedback_loop():
             assert learned["report"]["adapted"] is True
             assert learned["state"]["total_experiences"] == 1
 
+            _, _, tool_learning = _json_request(
+                url,
+                "/api/tools/learn",
+                {
+                    "name": "http-store-workflow",
+                    "kind": "store",
+                    "key": "http-key",
+                    "value": "http-value",
+                    "seed": 789,
+                },
+            )
+            assert tool_learning["learning"]["consolidated"] is True
+            assert tool_learning["transfer"]["success"] is True
+            assert tool_learning["state"]["tool_skill_count"] == 1
+
             with request.urlopen(f"{url}/", timeout=5) as response:
                 page = response.read().decode("utf-8")
-            assert "Growing Intelligence Lab" in page
-            assert "Learn an unrevealed rule" in page
+            assert "Continual Intelligence Lab" in page
+            assert "Enter an unfamiliar workspace" in page
         finally:
             server.shutdown()
             server.server_close()

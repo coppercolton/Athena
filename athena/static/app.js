@@ -8,6 +8,8 @@ const discoverSkillButton = document.querySelector("#discover-skill-button");
 const skillTrialResult = document.querySelector("#skill-trial-result");
 const skillRunForm = document.querySelector("#skill-run-form");
 const skillRunOutput = document.querySelector("#skill-run-output");
+const toolLearningForm = document.querySelector("#tool-learning-form");
+const toolLearningResult = document.querySelector("#tool-learning-result");
 
 async function api(path, options = {}) {
   const response = await fetch(path, {
@@ -240,6 +242,82 @@ function renderSkills(items) {
   skillRunForm.hidden = false;
 }
 
+function renderToolSkills(items) {
+  const container = document.querySelector("#tool-skill-list");
+  document.querySelector("#tool-skill-count").textContent = items.length;
+  container.replaceChildren();
+  container.className = "state-list";
+  if (!items.length) {
+    container.classList.add("empty-copy");
+    container.textContent = "No tool workflows yet.";
+    return;
+  }
+  items.forEach((item) => {
+    const card = element("div", "state-item");
+    const top = element("div", "state-item-top");
+    top.append(element("strong", "", item.name));
+    top.append(element("small", "status-preferred", `v${item.version}`));
+    card.append(top);
+    card.append(
+      element(
+        "p",
+        "",
+        `${item.task_kind} · ${item.required_capabilities.join(" → ")} · ${item.validation_worlds} worlds`,
+      ),
+    );
+    container.append(card);
+  });
+}
+
+function renderToolLearning(payload) {
+  const learning = payload.learning;
+  const acquisition = learning.acquisition;
+  const transfer = payload.transfer;
+  toolLearningResult.replaceChildren();
+  toolLearningResult.className = "skill-trial-result";
+
+  const passedValidations = learning.validations.filter((item) => item.passed).length;
+  const summary = element("div", "trial-summary");
+  [
+    [acquisition.trace.length, "Acquisition calls"],
+    [acquisition.reasoner_steps, "Reasoning decisions"],
+    [`${passedValidations}/${learning.validations.length}`, "Held-out worlds"],
+    [transfer?.success ? "Passed" : "Failed", "Cross-world transfer"],
+  ].forEach(([value, label]) => {
+    const metric = element("div", "trial-metric");
+    metric.append(element("strong", "", value));
+    metric.append(element("small", "", label));
+    summary.append(metric);
+  });
+  toolLearningResult.append(summary);
+
+  const heading = element("div", "tool-trace-heading");
+  heading.append(element("span", "", "Prediction → tool observation"));
+  heading.append(element("span", "permission-chip", "sandboxed"));
+  toolLearningResult.append(heading);
+  const log = element("div", "experiment-log");
+  acquisition.trace.forEach((experience) => {
+    const row = element("div", experience.result.ok ? "" : "trace-error");
+    const observation = experience.result.error
+      || experience.result.output.capability
+      || JSON.stringify(experience.result.output);
+    row.append(
+      element(
+        "span",
+        "",
+        `${experience.index}. ${experience.decision.tool_name}: ${experience.decision.hypothesis}`,
+      ),
+    );
+    row.append(element("span", "", `${experience.permission} → ${observation}`));
+    log.append(row);
+  });
+  toolLearningResult.append(log);
+  const resultCopy = learning.consolidated && transfer?.success
+    ? `Verified, consolidated, and transferred with ${transfer.reasoner_steps} new foundation-model decisions.`
+    : `Not consolidated: ${learning.reason}`;
+  toolLearningResult.append(element("div", "feedback-result", resultCopy));
+}
+
 function renderSkillTrial(payload) {
   const learning = payload.learning;
   const verification = learning.consolidation.verification;
@@ -299,7 +377,49 @@ function renderState(state) {
   renderMemories(state.episodes || []);
   renderFacts(state.beliefs || []);
   renderSkills(state.skills || []);
+  renderToolSkills(state.tool_skills || []);
 }
+
+function updateToolGoalFields() {
+  const kind = toolLearningForm.querySelector('[name="kind"]').value;
+  const field = toolLearningForm.querySelector(".tool-value-field");
+  const input = field.querySelector("input");
+  field.hidden = kind === "delete";
+  input.disabled = kind === "delete";
+  input.required = kind !== "delete";
+}
+
+toolLearningForm.querySelector('[name="kind"]').addEventListener("change", updateToolGoalFields);
+updateToolGoalFields();
+
+toolLearningForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  clearError();
+  const submit = toolLearningForm.querySelector("button");
+  submit.disabled = true;
+  submit.textContent = "Learning and verifying…";
+  const data = new FormData(toolLearningForm);
+  const now = Date.now();
+  try {
+    const payload = await api("/api/tools/learn", {
+      method: "POST",
+      body: JSON.stringify({
+        name: `${data.get("kind")}-workflow-${now}`,
+        kind: data.get("kind"),
+        key: data.get("key"),
+        value: data.get("value"),
+        seed: now % 1000000,
+      }),
+    });
+    renderToolLearning(payload);
+    renderState(payload.state);
+  } catch (error) {
+    showError(error);
+  } finally {
+    submit.disabled = false;
+    submit.textContent = "Learn another workflow";
+  }
+});
 
 discoverSkillButton.addEventListener("click", async () => {
   clearError();

@@ -19,4 +19,5 @@ jobs:
       - run: python tests/test_athena.py
       - run: python tests/test_agent.py
       - run: python tests/test_skills.py
+      - run: python tests/test_tool_learning.py
       - run: python tests/test_playground.py
