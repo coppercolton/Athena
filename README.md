@@ -1,7 +1,7 @@
 # Athena
 
 Athena is an experimental architecture for intelligence that keeps learning
-after deployment. It combines four complementary systems:
+after deployment. It combines five complementary systems:
 
 - a numeric continual world model that predicts the next observation and
   updates online; and
@@ -13,11 +13,16 @@ after deployment. It combines four complementary systems:
   held-out cases, and retains it without rewriting earlier skills; and
 - a permissioned tool-learning agent that explores unfamiliar operations,
   predicts results before acting, verifies real state, and compiles successful
-  traces into reusable workflows that bind to differently named tools.
+  traces into reusable workflows that bind to differently named tools; and
+- a protected neural-plasticity layer that trains expandable neural experts from
+  outcome-labelled experience and promotes new weights only after held-out and
+  regression evaluation.
 
-There is no hidden batch-training step in any learning loop. Predictions are
-recorded before outcomes arrive, experience is the data, and feedback changes
-future expectations without rewriting the foundation model after every event.
+Learning is explicit rather than hidden behind chat history. Predictions are
+recorded before outcomes arrive, experience is the data, and neural candidate
+training, replay, verification, promotion, and rollback are separately visible.
+The hosted foundation remains stable while Athena's smaller protected neural
+experts can change after deployment.
 
 ```text
 predict -> observe -> measure surprise -> infer context -> update -> predict
@@ -31,11 +36,15 @@ mean error must improve monotonically or that every environment is predictable.
 It means its learning machinery remains plastic, bounded, inspectable,
 testable, and resumable while observations and consequences keep arriving.
 
-## Try Athena — v0.6
+## Try Athena — v0.7
 
-V0.6 exposes three different kinds of post-deployment learning in one local
+V0.7 exposes four different kinds of post-deployment learning in one local
 browser interface:
 
+- **Neural reasoning improvement:** train a fresh neural expert from labelled
+  experiences. Athena measures accuracy before learning, changes real weights,
+  evaluates unseen cases, replays protected abilities, and either promotes or
+  rolls back the candidate before retained intelligence changes.
 - **Tool-workflow learning:** send Athena into an opaque virtual workspace. It
   inspects manuals, uses only policy-approved tools, snapshots reversible writes,
   verifies the goal, and tests the compiled workflow in worlds with new tool
@@ -121,25 +130,83 @@ documentation.
 Experience state is checkpointed after every prediction, outcome, and factual
 update at `~/.athena/playground.npz` by default. Symbolic skills are stored in
 `~/.athena/playground.skills.json`, and verified tool workflows in
-`~/.athena/playground.tool-skills.json`. Use `--state PATH` for another identity
-or experiment. Because live requests include the current task and retrieved
+`~/.athena/playground.tool-skills.json`. Consolidated neural experts, protected
+replay cases, and their actual parameters are stored in
+`~/.athena/playground.plasticity.npz`. Use `--state PATH` for another identity or
+experiment. Because live requests include the current task and retrieved
 learning context, do not place sensitive information in the agent unless it is
 appropriate to send to the configured model provider.
 
 ### What the playground can and cannot do
 
-It can learn permissioned workflows across differently named virtual tools,
-acquire procedures in its constrained symbolic language, reason through a
-connected foundation model, learn which proposed actions work in different
-contexts, remember qualitative outcomes, accept source-labelled facts, revise
-strategies when the world changes, and resume experience and skill state after
+It can change small neural networks after deployment, recruit isolated capacity,
+transfer learned relations to unseen values, replay protected cases, reject
+regressive updates, learn permissioned workflows across differently named
+virtual tools, acquire procedures in its constrained symbolic language, reason
+through a connected foundation model, and resume every learning subsystem after
 restart.
 
 It deliberately does **not** execute an arbitrary shell or connect the demo to
-external accounts. V0.6 executes registered tools only inside `OpaqueKVWorld`;
+external accounts. V0.7 executes registered tools only inside `OpaqueKVWorld`;
 the `ToolEnvironment` protocol is the boundary for future real integrations.
 External writes are denied by default. Moving beyond the sandbox requires a
 specific adapter, user authorization, task verifier, and rollback strategy.
+
+## What v0.7 established
+
+V0.7 is Athena's first post-deployment learning path that changes neural
+parameters. A candidate two-layer network learns a binary relational operator
+from outcome-labelled experiences. Its weights train in isolation and cannot
+replace a retained expert until an independent set of unseen cases passes. When
+an existing expert is updated, protected replay must also pass. Failed
+candidates are discarded, leaving the retained parameter checksum unchanged.
+
+The lifecycle is:
+
+1. recruit a deterministic, separately addressable neural expert;
+2. measure its pre-learning accuracy on data unavailable to training;
+3. train candidate weights on new experiences plus protected replay;
+4. measure the actual parameter distance and new checksum;
+5. test generalization on held-out cases;
+6. test older protected cases for regression;
+7. promote a new version only if both gates pass; otherwise roll back;
+8. checkpoint the exact parameters and replay set; and
+9. evaluate transfer on a new seed and different input magnitude.
+
+New operators receive new experts, so acquiring a nonlinear relation does not
+mutate the weights of an earlier aggregate-comparison operator. Compatible new
+experience can update an existing expert and advance its version. Contradictory
+experience is allowed to train a candidate, but the candidate is rejected before
+it reaches the retained registry if it fails new-task or regression evaluation.
+
+### Neural-plasticity benchmark
+
+The benchmark learns two operators per seed: an aggregate comparison and a
+nonlinear same-side relation. Training, held-out verification, and transfer use
+independent random seeds; transfer also changes input magnitude. One candidate
+correctly remained unpromoted because it missed the verification threshold.
+
+| measure | result |
+|---|---:|
+| neural operators promoted | **39 / 40** |
+| unseen-distribution transfers | **39 / 40** |
+| mean transfer accuracy among promoted experts | **99.730%** |
+| first experts unchanged after new module recruitment | **20 / 20** |
+| contradictory updates safely rolled back | **20 / 20** |
+
+Run the transparent demonstration and multi-seed benchmark with:
+
+```bash
+python3 examples/neural_plasticity.py
+python3 examples/neural_plasticity_benchmark.py
+```
+
+This is genuine neural adaptation, but the claim is deliberately narrow. The
+inputs are four human-defined numeric features, the learning signal is supplied,
+and each expert predicts one binary relation. V0.7 does not fine-tune Nemotron or
+OpenAI weights, discover its own open-ended representation space, or establish
+general intelligence. It establishes a protected plastic substrate on which
+broader learned representations and reasoning operators can be tested.
 
 ## What v0.6 established
 
@@ -516,13 +583,14 @@ Continuous updates alone are not enough. A credible forever learner needs:
 - explicit resource limits or memory will grow forever even if capability does
   not.
 
-Athena v0.6 implements early versions of these contracts across numeric streams,
-outcome-scored agent decisions, constrained executable skills, and permissioned
-virtual tool workflows, with a runnable interface and optional live foundation
-adapter. It does not yet learn an open-ended representation space, improve the
-neural foundation's weights, connect itself to arbitrary real-world accounts,
-perform broad causal reasoning, form autonomous goals, or safely self-modify.
-The repository does not bundle or train a foundation model.
+Athena v0.7 implements early versions of these contracts across numeric streams,
+outcome-scored agent decisions, constrained executable skills, permissioned
+virtual tool workflows, and expandable neural experts, with a runnable interface
+and optional live foundation adapter. It now improves small task-specific neural
+modules after deployment, but does not yet learn an open-ended representation
+space, improve the hosted foundation's weights, connect itself to arbitrary
+real-world accounts, perform broad causal reasoning, form autonomous goals, or
+safely self-modify. The repository does not bundle or train a foundation model.
 
 ## Next research milestones
 
@@ -530,25 +598,31 @@ The repository does not bundle or train a foundation model.
    filesystem workspace and test runner, with explicit per-tool authorization.
 2. Learn conditional, branching, and recovery procedures rather than only linear
    workflows.
-3. Learn representations and reusable reasoning operators from instruction,
-   demonstration, correction, and trial—not only select existing primitives.
+3. Replace human-defined neural inputs with learned representations and reusable
+   reasoning operators acquired from instruction, demonstration, correction,
+   and trial.
 4. Evaluate improvement, transfer, forgetting, and poisoned-feedback resistance
    on procedurally novel tasks over long deployments and multiple seeds.
 5. Connect the agent layer to the numeric world model so imagined sensory
    consequences can inform candidate selection.
-6. Add expandable neural adapters or expert modules only behind evaluation,
-   regression, checkpoint, and rollback gates.
+6. Connect protected experts to the foundation boundary through bounded adapters
+   while keeping evaluation, regression, checkpoint, and rollback gates external.
 7. Add multimodal representations and offline reflection while keeping a
    protected evaluator responsible for promotion and rollback.
 
 ## Validation and layout
+
+The current regression suite passes **66 / 66** behavioral tests.
 
 ```bash
 python3 tests/test_athena.py          # 16 numeric world-model tests
 python3 tests/test_agent.py           # 8 deployment-learning tests
 python3 tests/test_skills.py          # 7 skill acquisition/retention tests
 python3 tests/test_tool_learning.py   # 15 tool, transfer, policy, rollback tests
-python3 tests/test_playground.py      # 11 browser/API/foundation tests
+python3 tests/test_plasticity.py      # 8 neural promotion/retention tests
+python3 tests/test_playground.py      # 12 browser/API/foundation tests
+python3 examples/neural_plasticity.py
+python3 examples/neural_plasticity_benchmark.py
 python3 examples/tool_learning_agent.py
 python3 examples/tool_agent_benchmark.py
 python3 examples/novel_skill_learning.py
@@ -565,6 +639,7 @@ python3 examples/precision.py
 | `athena/context.py` | Bayesian regime inference and protected recruitment |
 | `athena/agent.py` | foundation-model boundary, decisions, outcome learning |
 | `athena/foundation.py` | offline demo, OpenAI, and OpenRouter model adapters |
+| `athena/plasticity.py` | neural experts, replay, promotion, rollback, checkpoints |
 | `athena/memory.py` | episodic retrieval and evidence-gated factual beliefs |
 | `athena/skills.py` | knowledge gaps, active induction, verification, skill registry |
 | `athena/tool_learning.py` | permission policy, unfamiliar tools, workflow compilation |
@@ -578,6 +653,7 @@ python3 examples/precision.py
 | `tests/test_agent.py` | post-deployment adaptation, context, facts, checkpoints |
 | `tests/test_skills.py` | induction, instruction, transfer, composition, regression |
 | `tests/test_tool_learning.py` | tool calls, validation, transfer, persistence, safety |
+| `tests/test_plasticity.py` | neural updates, transfer, retention, rollback, persistence |
 | `tests/test_playground.py` | live adapter contract and end-to-end browser API |
 
 Requires Python 3.10+ and NumPy:

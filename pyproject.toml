@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "athena-predictive-processing"
-version = "0.6.0"
-description = "A predictive-processing agent with verified continual tool learning"
+version = "0.7.0"
+description = "A predictive-processing agent with protected neural plasticity"
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = ["numpy>=1.24"]

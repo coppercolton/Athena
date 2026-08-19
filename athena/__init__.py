@@ -24,6 +24,14 @@ from .foundation import (
 )
 from .memory import Belief, BeliefStore, Episode, EpisodicMemory, HashingEncoder
 from .precision import Precision, VolatilityTracker
+from .plasticity import (
+    NeuralExample,
+    PlasticityConfig,
+    PlasticityReport,
+    PlasticSkill,
+    ProtectedPlasticity,
+    make_reasoning_cases,
+)
 from .skills import (
     ConsolidationReport,
     Example,
@@ -129,6 +137,12 @@ __all__ = [
     "OnlineRLS",
     "Precision",
     "VolatilityTracker",
+    "NeuralExample",
+    "PlasticityConfig",
+    "PlasticityReport",
+    "PlasticSkill",
+    "ProtectedPlasticity",
+    "make_reasoning_cases",
     "Regime",
     "SwitchingWorld",
     "shifting_world",
@@ -137,4 +151,4 @@ __all__ = [
     "linear_mse",
     "zero_mse",
 ]
-__version__ = "0.6.0"
+__version__ = "0.7.0"

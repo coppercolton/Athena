@@ -32,10 +32,50 @@
           <p class="eyebrow">LEARN THROUGH EXPERIENCE</p>
           <h1>Give Athena unfamiliar tools.<br><span>Watch it learn a workflow.</span></h1>
           <p>
-            V0.6 adds permissioned tool learning: inspect unknown operations,
-            predict before acting, verify the real result, compile successful
-            experience, and transfer it into a differently named workspace.
+            V0.7 adds protected neural plasticity: experience changes real
+            neural weights, but only held-out improvements that preserve older
+            abilities are consolidated into Athena's retained mind.
           </p>
+        </div>
+
+        <section class="skill-lab neural-plasticity-lab" aria-labelledby="plasticity-lab-title">
+          <div class="skill-lab-heading">
+            <div>
+              <p class="eyebrow">V0.7 · PROTECTED NEURAL PLASTICITY</p>
+              <h2 id="plasticity-lab-title">Grow a neural reasoning operator</h2>
+              <p>
+                Outcome-labelled experiences train isolated candidate weights.
+                Athena evaluates unseen cases, replays protected abilities, and
+                promotes or rolls back the update before retained intelligence changes.
+              </p>
+            </div>
+          </div>
+          <form id="plasticity-learning-form" class="tool-learning-form neural-learning-form">
+            <label>
+              Unrevealed relation
+              <select name="rule">
+                <option value="relative_balance">Compare aggregate quantities</option>
+                <option value="same_sign">Learn a nonlinear same-side relation</option>
+              </select>
+            </label>
+            <button class="primary-button" type="submit">Train candidate weights</button>
+          </form>
+          <div id="plasticity-learning-result" class="skill-trial-result empty-copy">
+            No neural experience yet. Training, held-out evaluation, replay,
+            promotion, and transfer are shown separately so improvement is measurable.
+          </div>
+          <form id="plasticity-run-form" class="skill-run-form" hidden>
+            <label for="plasticity-select">Neural operator</label>
+            <select id="plasticity-select" name="name"></select>
+            <label for="plasticity-input">Four numeric signals (JSON array)</label>
+            <input id="plasticity-input" name="input" value='[0.8, 0.4, -0.2, 0.1]' required>
+            <button type="submit">Run retained weights</button>
+          </form>
+          <output id="plasticity-run-output" class="skill-run-output" hidden></output>
+        </section>
+
+        <div class="section-divider">
+          <span>Permissioned agent learning</span>
         </div>
 
         <section class="skill-lab tool-agent-lab" aria-labelledby="tool-lab-title">
@@ -172,6 +212,14 @@
           </div>
           <span class="pulse" title="Learning state active"></span>
         </div>
+
+        <section class="state-section">
+          <div class="section-title">
+            <h3>Neural operators</h3>
+            <span id="plastic-skill-count">0</span>
+          </div>
+          <div id="plastic-skill-list" class="state-list empty-copy">No neural operators yet.</div>
+        </section>
 
         <section class="state-section">
           <div class="section-title">

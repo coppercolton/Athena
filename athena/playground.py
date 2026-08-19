@@ -30,6 +30,7 @@ from .foundation import (
     OpenRouterChatFoundation,
     OpenRouterChatToolReasoner,
 )
+from .plasticity import ProtectedPlasticity, make_reasoning_cases
 from .skills import NovelTaskLearner, SkillRegistry
 from .tool_learning import (
     DemoToolReasoner,
@@ -69,6 +70,9 @@ class PlaygroundService:
         self.tool_skill_path = self.state_path.with_name(
             f"{self.state_path.stem}.tool-skills.json"
         )
+        self.plasticity_path = self.state_path.with_name(
+            f"{self.state_path.stem}.plasticity.npz"
+        )
         self._lock = threading.RLock()
         if self.state_path.exists():
             self.agent = AthenaAgent.load(self.state_path, foundation=foundation)
@@ -96,6 +100,11 @@ class PlaygroundService:
             reasoner=tool_reasoner,
             registry=tool_registry,
         )
+        self.plasticity = (
+            ProtectedPlasticity.load(self.plasticity_path)
+            if self.plasticity_path.exists()
+            else ProtectedPlasticity()
+        )
 
     @property
     def backend_name(self) -> str:
@@ -112,6 +121,9 @@ class PlaygroundService:
 
     def _save_tool_skills(self) -> None:
         self.tool_agent.registry.save(self.tool_skill_path)
+
+    def _save_plasticity(self) -> None:
+        self.plasticity.save(self.plasticity_path)
 
     def decide(self, payload: dict[str, Any]) -> dict[str, object]:
         situation = str(payload.get("situation", ""))
@@ -209,6 +221,54 @@ class PlaygroundService:
                 "name": name,
                 "input": values,
                 "output": self.skill_learner.registry.run(name, values),
+            }
+
+    def grow_neural_skill(self, payload: dict[str, Any]) -> dict[str, object]:
+        """Change neural weights, then gate consolidation on unseen experience."""
+
+        with self._lock:
+            rule = str(payload.get("rule", "relative_balance"))
+            if rule not in ("relative_balance", "same_sign"):
+                raise ValueError("rule must be relative_balance or same_sign")
+            seed = int(payload.get("seed", len(self.plasticity) + 701))
+            default_name = f"{rule.replace('_', '-')}-{len(self.plasticity) + 1}"
+            name = str(payload.get("name", default_name)).strip()
+            training = make_reasoning_cases(rule, 128, seed)
+            validation = make_reasoning_cases(rule, 96, seed + 1)
+            report = self.plasticity.learn(name, training, validation)
+            if report.promoted:
+                self._save_plasticity()
+                transfer = make_reasoning_cases(rule, 256, seed + 2, scale=1.5)
+                transfer_accuracy = self.plasticity.evaluate(name, transfer)
+                skill = asdict(self.plasticity.get(name))
+            else:
+                transfer_accuracy = 0.0
+                skill = None
+            return {
+                "rule": rule,
+                "report": asdict(report),
+                "transfer": {
+                    "cases": 256,
+                    "different_magnitude": True,
+                    "accuracy": transfer_accuracy,
+                    "passed": transfer_accuracy >= 0.95,
+                },
+                "skill": skill,
+                "state": self.state(),
+            }
+
+    def run_neural_skill(self, payload: dict[str, Any]) -> dict[str, object]:
+        name = str(payload.get("name", "")).strip()
+        values = payload.get("input")
+        if not isinstance(values, list):
+            raise ValueError("input must be a JSON array")
+        with self._lock:
+            probability = self.plasticity.predict_probability(name, values)
+            return {
+                "name": name,
+                "input": values,
+                "probability": probability,
+                "prediction": int(probability >= 0.5),
             }
 
     @staticmethod
@@ -332,6 +392,7 @@ class PlaygroundService:
                 }
                 for item in self.tool_agent.registry.all()
             ]
+            plastic_skills = [asdict(item) for item in self.plasticity.all()]
             return {
                 "backend": self.backend_name,
                 "state_path": str(self.state_path),
@@ -345,6 +406,8 @@ class PlaygroundService:
                 "skill_count": len(skills),
                 "tool_skills": tool_skills,
                 "tool_skill_count": len(tool_skills),
+                "plastic_skills": plastic_skills,
+                "plastic_skill_count": len(plastic_skills),
             }
 
 
@@ -356,7 +419,7 @@ def make_handler(service: PlaygroundService):
     """Create an isolated request-handler class bound to one service."""
 
     class Handler(BaseHTTPRequestHandler):
-        server_version = "AthenaPlayground/0.6"
+        server_version = "AthenaPlayground/0.7"
 
         def _json(self, value: object, status: HTTPStatus = HTTPStatus.OK) -> None:
             encoded = json.dumps(value, ensure_ascii=False).encode("utf-8")
@@ -418,6 +481,8 @@ def make_handler(service: PlaygroundService):
                     "/api/skills/run": service.run_skill,
                     "/api/tools/learn": service.learn_tool_workflow,
                     "/api/tools/run": service.run_tool_skill,
+                    "/api/plasticity/learn": service.grow_neural_skill,
+                    "/api/plasticity/run": service.run_neural_skill,
                 }
                 if self.path not in routes:
                     self._json({"error": "not found"}, HTTPStatus.NOT_FOUND)
