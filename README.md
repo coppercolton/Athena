@@ -1596,18 +1596,140 @@ not. Both fixes follow from that:
     situations permanently severs two items that belong together. What
     survives noise is the *rate* — alternatives for one slot co-occur far
     below independence, whether or not they manage it once.
-*   **Rare items are noise, not alternatives.** Without a frequency floor,
-    every stray item an extractor invents becomes its own singleton role, and
-    the count of discovered roles climbs with the error rate while every real
-    slot is still recovered intact.
+*   **Debris has to be rejected.** Without some filter, every stray item an
+    extractor invents becomes its own singleton role, and the count of
+    discovered roles climbs with the error rate while every real slot is still
+    recovered intact.
 
 Neither is a tuning knob. Both are the difference between an algorithm written
 for a world that reports itself perfectly and one written for a world observed
 through something fallible.
 
+The *filter* was a tuning knob, though, and the wrong one. This round rejected
+debris by discarding rare items, on the reasoning that anything seen a handful
+of times is a misfire rather than an alternative. On generated data that is
+indistinguishable from the right rule, because a generator picks its fillers
+roughly uniformly and there are no rare alternatives to lose. Round twelve
+found real data where there are, and the shortcut cost most of the answer.
+
 ```
 python3 examples/finding_the_joints.py
 ```
+
+## Round twelve: data nobody generated for it
+
+Every result up to here, round eleven's noise sweep included, was measured on
+symbols this repository produced. That is the standard way to fool yourself. A
+generator and the algorithm that reads it share assumptions the world does not
+have to honour — balanced slots, clean exclusion, no rare values, no attribute
+quietly determined by another.
+
+So the same `discover_slots`, unchanged, was run on three categorical datasets
+from the UCI repository, published decades before any of this and by people
+with no interest in it. Each row is stripped of its column structure and handed
+over as an unordered bag of opaque tokens: `t3_n` is an identifier and nothing
+more, and the algorithm never parses it. Two values of the same attribute look
+exactly like two values of different attributes. The true column is used only
+to score the answer afterwards.
+
+This is the honest version of the scene-graph test. A real extractor reading
+*"a brown cap above white gills"* emits two facts that happen to share a colour
+and belong to different roles, and nothing marks which is which.
+
+| dataset | rows | values | attributes | found | purity | recovered exactly |
+|---|---:|---:|---:|---:|---:|---:|
+| mushroom | 8124 | 117 | 22 | **22** | 0.915 | 15/22 |
+| car | 1728 | 21 | 6 | **6** | **1.000** | **6/6** |
+| nursery | 12960 | 27 | 8 | **8** | **1.000** | **8/8** |
+
+**It finds the right number of attributes on all three, and on two of them
+reconstructs every attribute exactly — which values belong together, with no
+value missing and none added.** Nobody told it how many attributes there were.
+
+### The shortcut that had to go
+
+The first run of this scored **5/22 exact on mushroom at purity 1.000** — pure
+groups, badly truncated. The cause was not subtle: exactly the five attributes
+whose every value cleared round eleven's 5%-frequency floor were the five
+recovered whole. Mushroom has 46 of its 117 values under that threshold, and
+the floor threw all of them away.
+
+Purity 1.000 was the tell, again, and it means less than it looks: purity over
+a set you have already truncated only says the survivors were sorted correctly.
+
+The repair is to stop filtering *items* and filter *groups*, using the counting
+rule the method already defines itself by — **a role is a set of mutually
+exclusive alternatives whose occurrences sum to the number of situations.**
+Debris fails that test as a group: strays are mutually exclusive with each
+other, so they do collect into their own group, and that group accounts for a
+few percent of the situations instead of all of them. A rare genuine value
+passes, because it is judged by the company its whole slot keeps rather than by
+its own frequency.
+
+One criterion, applied once, replacing two:
+
+| extraction error | coverage rule: roles | purity | frequency floor: roles | purity |
+|---:|---:|---:|---:|---:|
+| 0% | 4.00 | 1.000 | 4.00 | 1.000 |
+| 5% | 4.00 | 1.000 | 4.00 | 1.000 |
+| 20% | 4.00 | 1.000 | 4.00 | 1.000 |
+| 35% | 4.00 | 1.000 | 4.00 | 1.000 |
+
+Identical under noise — and on mushroom, **15/22 exact against 5/22**. The
+floor was never buying the robustness it was credited with; the statistical
+exclusion test was doing that work alone. It was only discarding evidence.
+
+Noise tolerance also went up rather than down: round eleven broke near 30%
+because strays inflated the role count, and a group that explains 2% of the
+situations is now simply not a role. The sweep is flat to 35%.
+
+### What the remaining seven are
+
+The mushroom failures are not noise, they are real structure that mutual
+exclusivity cannot see:
+
+*   **stalk-colour-above-ring** and **stalk-colour-below-ring** are usually the
+    same colour. Two attributes that share an alphabet and almost always agree
+    are not separable by co-occurrence, because they do not behave like two
+    slots.
+*   Several veil-colour and odour values occur under 100 times in 8124 rows and
+    are *deterministically nested* inside ring-type. A value that only ever
+    appears under one condition is exclusive with things it does not belong to.
+
+Both are cases where the world genuinely does not present two independent
+slots. That is a limit of the signal, not of the search, and it is the sort of
+thing a generated benchmark will never show you.
+
+### This criterion is not new, and that is worth knowing
+
+Searching the literature afterwards, the co-occurrence-plus-mutual-exclusivity
+signal is an established one in pattern mining. The closest prior work is
+Fischer et al.'s **Mexican** [1], which formalises exactly this pair of
+relations under the Minimum Description Length principle and, notably, includes
+*an efficient statistical test for K-ary mutual exclusivity* introduced for the
+same reason arrived at here empirically: in sparse data, exact mutual
+exclusivity happens by chance and produces spurious patterns. They report the
+same headline result — ground truth recovered on synthetic data, where the
+state of the art returns millions of spurious patterns. MDL-based pattern
+selection is a whole literature [2], reaching back to SUBDUE [7].
+
+So the discovery criterion is a rediscovery. What is not in that literature is
+what it is being used *for*: those methods mine patterns as the end product,
+for human inspection. Here the recovered groups are named, aligned across
+domains by relational signature, and used as the role vocabulary for binding
+and analogical transfer — the thing every other mechanism in this repository
+had to be handed. That composition is the claim; the miner underneath it has a
+twenty-year pedigree, and using a mature one instead is now an obvious upgrade
+rather than a research question.
+
+```
+python3 examples/real_data.py
+```
+
+[1] [Discovering Succinct Pattern Sets Expressing Co-Occurrence and Mutual Exclusivity](https://consensus.app/papers/details/ec43309ccb835845bcde6fd5b08a86b5/) (Fischer, Kiefer et al., 2020, KDD)
+[2] [The minimum description length principle for pattern mining: a survey](https://consensus.app/papers/details/e3b72f21b30650bbb01d6063b233d78c/) (Galbrun, 2020, Data Mining and Knowledge Discovery)
+[7] [Substructure Discovery Using Minimum Description Length and Background Knowledge](https://consensus.app/papers/details/dd0647224c575b3194a713269c4ff067/) (Cook & Holder, 1993)
+
 
 ## Scientific position
 
@@ -1668,63 +1790,56 @@ not bundle or train a foundation model.
 
 ## Validation and layout
 
-The current regression suite passes **94 / 94** behavioral tests.
+The regression suite passes **52 / 52** behavioural tests.
 
 ```bash
-python3 tests/test_athena.py          # 16 numeric world-model tests
-python3 tests/test_agent.py           # 8 deployment-learning tests
-python3 tests/test_skills.py          # 7 skill acquisition/retention tests
-python3 tests/test_tool_learning.py   # 15 tool, transfer, policy, rollback tests
-python3 tests/test_plasticity.py      # 8 neural promotion/retention tests
-python3 tests/test_representations.py # 9 latent reuse/transfer/rollback tests
-python3 tests/test_apprentice.py      # 14 persistence/isolation/learning tests
-python3 tests/test_readiness.py       # 4 fail-closed AGI audit tests
-python3 tests/test_playground.py      # 13 browser/API/foundation tests
-python3 examples/learned_representations.py
-python3 examples/live_apprentice.py
-python3 examples/representation_benchmark.py --seeds 10
-python3 examples/agi_readiness.py
-python3 examples/neural_plasticity.py
-python3 examples/neural_plasticity_benchmark.py
-python3 examples/tool_learning_agent.py
-python3 examples/tool_agent_benchmark.py
-python3 examples/novel_skill_learning.py
-python3 examples/skill_benchmark.py
-python3 examples/experience_agent.py
-python3 examples/honest_benchmark.py
-python3 examples/continual_benchmark.py
-python3 examples/precision.py
+python3 tests/test_athena.py      # 16 numeric world-model tests
+python3 tests/test_continual.py   # 13 replay, consolidation, interference tests
+python3 tests/test_plasticity.py  #  8 shared-plasticity and retention tests
+python3 tests/test_transfer.py    #  8 progressive-registry transfer tests
+python3 tests/test_joints.py      #  7 role-discovery tests
+```
+
+The rounds, in the order they were measured:
+
+```bash
+python3 examples/honest_benchmark.py       # does it beat persistence at all
+python3 examples/continual_benchmark.py    # replay vs consolidation vs both
+python3 examples/permuted_mnist.py         # on a benchmark it did not choose
+python3 examples/replay_priority.py        # coverage beats selection
+python3 examples/what_to_store.py          # store the function, not the answer
+python3 examples/how_little.py             # how small a memory can be
+python3 examples/how_many_timescales.py    # one anchor helps, two do not
+python3 examples/being_taught.py           # instruction vs experimentation
+python3 examples/library_vs_gradient.py    # compounding needs shared parts
+python3 examples/wake_sleep.py             # imagination needs a verifier
+python3 examples/binding_problem.py        # bags destroy structure
+python3 examples/abstract_analogy.py       # transfer over shared roles
+python3 examples/finding_the_joints.py     # the roles are learnable
+python3 examples/real_data.py              # on data nobody generated for it
 ```
 
 | path | purpose |
 |---|---|
-| `athena/core.py` | hierarchy, recursive memory fusion, loop, checkpoints |
+| `athena/core.py` | hierarchical predictive coding, generalized coordinates, fusion |
+| `athena/precision.py` | uncertainty, relative precision, volatility estimation |
+| `athena/continual.py` | the always-training trunk: replay, consolidation, rollback |
+| `athena/der.py` | dark experience replay: rehearsing outputs rather than labels |
+| `athena/timescales.py` | snapshot, slow, and fast anchors on one trunk |
+| `athena/library.py` | learned abstractions, description-length cost, dreaming, verification |
+| `athena/binding.py` | high-dimensional bind and bundle: structure that survives arithmetic |
+| `athena/analogy.py` | mapping by multiplication, transfer over shared roles |
+| `athena/joints.py` | recovering the role vocabulary from co-occurrence alone |
+| `athena/taught.py` | rules, instruction, and the episodic/gradient learners |
+| `athena/plasticity.py` | shared plasticity across skills, promotion and rollback |
+| `athena/transfer.py` | progressive registry: frozen columns and lateral reads |
+| `athena/priority.py` | retention policies compared in the coverage round |
 | `athena/context.py` | Bayesian regime inference and protected recruitment |
-| `athena/agent.py` | foundation-model boundary, decisions, outcome learning |
-| `athena/foundation.py` | offline demo, OpenAI, and OpenRouter model adapters |
-| `athena/apprentice.py` | persistent queue, disposable repositories, ledger, verifier, procedures |
-| `athena/apprentice_cli.py` | submit, teach, retry, run, daemon, and status commands |
-| `athena/plasticity.py` | neural experts, replay, promotion, rollback, checkpoints |
-| `athena/representations.py` | masked sensor encoder, latent state, grounded reasoning heads |
-| `athena/readiness.py` | mandatory fail-closed AGI evidence gates |
-| `athena/memory.py` | episodic retrieval and evidence-gated factual beliefs |
-| `athena/skills.py` | knowledge gaps, active induction, verification, skill registry |
-| `athena/tool_learning.py` | permission policy, unfamiliar tools, workflow compilation |
-| `athena/playground.py` | local server, persistent API, and launch command |
-| `athena/static/` | browser interface for tasks, outcomes, and memory |
+| `athena/plot.py` | figures for the measured rounds |
 | `athena/baselines.py` | online RLS and its prequential contract |
-| `athena/precision.py` | uncertainty and volatility estimation |
 | `athena/world.py` | deterministic synthetic worlds and simple baselines |
-| `examples/` | reproducible stationary and continual benchmarks |
-| `tests/test_athena.py` | numeric behavioral claims and persistence contracts |
-| `tests/test_agent.py` | post-deployment adaptation, context, facts, checkpoints |
-| `tests/test_skills.py` | induction, instruction, transfer, composition, regression |
-| `tests/test_tool_learning.py` | tool calls, validation, transfer, persistence, safety |
-| `tests/test_plasticity.py` | neural updates, transfer, retention, rollback, persistence |
-| `tests/test_representations.py` | raw perception, latent reuse, transfer, refinement, rollback |
-| `tests/test_apprentice.py` | real-repository isolation, persistence, policy, promotion, rollback |
-| `tests/test_readiness.py` | AGI audit conservatism and missing-evidence behavior |
-| `tests/test_playground.py` | live adapter contract and end-to-end browser API |
+| `examples/` | one script per measured round, each reproducing a table above |
+| `tests/` | behavioural claims, checked against baselines rather than against zero |
 
 Requires Python 3.10+ and NumPy:
 

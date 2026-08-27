@@ -59,52 +59,17 @@ def cooccurrence(episodes: list[list[str]]) -> tuple[np.ndarray, list[str]]:
     return counts, items
 
 
-def discover_slots(episodes: list[list[str]]) -> list[list[str]]:
-    """Group items into roles from co-occurrence alone.
+EXCLUSION = 0.25
+"""How far below independence two items must co-occur to count as exclusive."""
 
-    The exact criterion: **a role is a set of pairwise mutually exclusive items
-    whose occurrence counts sum to the number of situations.** Exactly one
-    thing fills a slot in every situation, so the alternatives for that slot
-    partition the episodes between them. Nothing else in the data has that
-    property.
+COVERAGE = 0.5
+"""Fraction of situations a group must account for to be a role rather than debris."""
 
-    A first version of this used "never co-occur, and keeps the same company",
-    which seems equivalent and is not. Where one slot *depends* on another --
-    the relief following the buildup -- the fillers of a slot keep systematically
-    different company, so distributional equivalence fails exactly where the
-    interesting relational structure lives, and the slot gets shattered. Pure
-    mutual exclusion has the opposite failure: a dependency also makes some
-    *cross*-slot pairs never co-occur, which fuses the two slots together.
-    Counting is what separates them, because a fused pair over-counts: its
-    members sum to twice the episodes, not once.
 
-    No labels, no slot count, no supervision.
-    """
-    counts, items = cooccurrence(episodes)
-    total = len(episodes)
-    occurrences = np.diag(counts).copy()
-
-    # Anything seen a handful of times is not an alternative for a slot, it is
-    # a misfire of whatever produced the observations. Without this filter the
-    # stray items a real extractor invents each become their own singleton
-    # role, and the count of discovered roles drifts up with the error rate
-    # even though every genuine slot is still recovered intact.
-    common = occurrences >= 0.05 * total
-    if common.sum() >= 2:
-        keep = np.flatnonzero(common)
-        counts = counts[np.ix_(keep, keep)]
-        occurrences = occurrences[keep]
-        items = [items[i] for i in keep]
-
-    # Exclusion has to be statistical, not exact. Testing ``counts == 0``
-    # assumes a perfect observer: one hallucinated co-occurrence in eight
-    # hundred situations permanently severs two items that belong together,
-    # and at a 2% extraction error rate the four true roles shatter into
-    # eight. What survives noise is the *rate* -- two alternatives for the
-    # same slot co-occur far less often than independence would predict,
-    # whether or not they ever manage it once.
+def _greedy_slots(counts, occurrences, total):
+    """Group indices into mutually exclusive sets that each fill the episodes once."""
     expected = np.outer(occurrences, occurrences) / max(total, 1)
-    exclusive = counts < 0.25 * expected
+    exclusive = counts < EXCLUSION * expected
     np.fill_diagonal(exclusive, True)
 
     order = list(np.argsort(-occurrences))
@@ -125,7 +90,55 @@ def discover_slots(episodes: list[list[str]]) -> list[list[str]]:
             mass += occurrences[candidate]
         unassigned -= set(group)
         slots.append(group)
-    return [[items[i] for i in sorted(group)] for group in slots]
+    return slots
+
+
+def discover_slots(episodes: list[list[str]]) -> list[list[str]]:
+    """Group items into roles from co-occurrence alone.
+
+    The exact criterion: **a role is a set of pairwise mutually exclusive items
+    whose occurrence counts sum to the number of situations.** Exactly one
+    thing fills a slot in every situation, so the alternatives for that slot
+    partition the episodes between them. Nothing else in the data has that
+    property.
+
+    A first version of this used "never co-occur, and keeps the same company",
+    which seems equivalent and is not. Where one slot *depends* on another --
+    the relief following the buildup -- the fillers of a slot keep systematically
+    different company, so distributional equivalence fails exactly where the
+    interesting relational structure lives, and the slot gets shattered. Pure
+    mutual exclusion has the opposite failure: a dependency also makes some
+    *cross*-slot pairs never co-occur, which fuses the two slots together.
+    Counting is what separates them, because a fused pair over-counts: its
+    members sum to twice the episodes, not once.
+
+    Exclusion has to be measured statistically rather than exactly. Testing
+    ``counts == 0`` assumes a perfect observer: one hallucinated co-occurrence
+    in eight hundred situations permanently severs two items that belong
+    together, and at a 2% extraction error rate the four true roles shatter
+    into eight. What survives noise is the *rate* -- two alternatives for the
+    same slot co-occur far less often than independence predicts, whether or
+    not they ever manage it once.
+
+    The debris a real extractor invents is then rejected by the same counting
+    rule that defines a role, applied at the end: strays are mutually exclusive
+    with each other, so they collect into their own group, and that group
+    accounts for a few percent of the situations instead of all of them. An
+    earlier version discarded rare *items* up front instead, which is not the
+    same test and costs real structure -- 46 of the 117 mushroom attribute
+    values fall under a 5% threshold, and holding them back left every role
+    pure but truncated, with only 5 of 22 attributes recovered whole. A rare
+    alternative is not debris. A group that explains nothing is.
+
+    No labels, no slot count, no supervision.
+    """
+    counts, items = cooccurrence(episodes)
+    total = len(episodes)
+    occurrences = np.diag(counts).copy()
+
+    slots = _greedy_slots(counts, occurrences, total)
+    kept = [g for g in slots if occurrences[g].sum() >= COVERAGE * total]
+    return [sorted(items[i] for i in group) for group in (kept or slots)]
 
 
 def slot_signature(episodes: list[list[str]], slots: list[list[str]]) -> np.ndarray:
