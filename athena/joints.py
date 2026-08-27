@@ -83,7 +83,28 @@ def discover_slots(episodes: list[list[str]]) -> list[list[str]]:
     counts, items = cooccurrence(episodes)
     total = len(episodes)
     occurrences = np.diag(counts).copy()
-    exclusive = counts == 0
+
+    # Anything seen a handful of times is not an alternative for a slot, it is
+    # a misfire of whatever produced the observations. Without this filter the
+    # stray items a real extractor invents each become their own singleton
+    # role, and the count of discovered roles drifts up with the error rate
+    # even though every genuine slot is still recovered intact.
+    common = occurrences >= 0.05 * total
+    if common.sum() >= 2:
+        keep = np.flatnonzero(common)
+        counts = counts[np.ix_(keep, keep)]
+        occurrences = occurrences[keep]
+        items = [items[i] for i in keep]
+
+    # Exclusion has to be statistical, not exact. Testing ``counts == 0``
+    # assumes a perfect observer: one hallucinated co-occurrence in eight
+    # hundred situations permanently severs two items that belong together,
+    # and at a 2% extraction error rate the four true roles shatter into
+    # eight. What survives noise is the *rate* -- two alternatives for the
+    # same slot co-occur far less often than independence would predict,
+    # whether or not they ever manage it once.
+    expected = np.outer(occurrences, occurrences) / max(total, 1)
+    exclusive = counts < 0.25 * expected
     np.fill_diagonal(exclusive, True)
 
     order = list(np.argsort(-occurrences))
@@ -98,7 +119,7 @@ def discover_slots(episodes: list[list[str]]) -> list[list[str]]:
                 continue
             if not all(exclusive[candidate, member] for member in group):
                 continue
-            if mass + occurrences[candidate] > total * 1.05:
+            if mass + occurrences[candidate] > total * 1.35:
                 continue  # would over-fill the slot: these are not alternatives
             group.append(candidate)
             mass += occurrences[candidate]

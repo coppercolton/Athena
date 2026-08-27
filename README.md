@@ -1554,6 +1554,61 @@ the wall actually is.
 python3 examples/finding_the_joints.py
 ```
 
+## Round eleven: could a real perception system feed this?
+
+The obvious objection to round ten is that its input was already clean symbols.
+And the obvious rejoinder is that naming things is *solved* — vision models
+identify objects and attributes, segmentation models cut scenes into parts. So
+why not just plug one in?
+
+The gap is narrower than "object discovery" and is exactly what round eight
+measured. A recogniser hands you a **bag**: `{red, cube, blue, cylinder}`. A
+bag destroys binding — the swapped scene is a bit-identical vector, every
+time. What the algebra needs is items with their attributes still *attached*.
+Structured extractors that produce `(red, cube)` as a unit do exist, and an
+LLM does it well from text, so the question is empirical: does role discovery
+survive an extractor's mistakes?
+
+Simulating one that drops items, invents items, and mislabels items:
+
+| extraction error | slots found | purity | transfer |
+|---:|---:|---:|---:|
+| 0% | 4.00 | 1.000 | **1.000** |
+| 2% | 4.00 | 1.000 | **1.000** |
+| 5% | 4.00 | 1.000 | **1.000** |
+| 10% | 4.00 | 1.000 | **1.000** |
+| 20% | 4.59 | 1.000 | **1.000** |
+| 30% | 6.66 | 1.000 | 0.000 |
+
+**It tolerates about 20% extraction error and breaks near 30%** — comfortably
+above what a modern extractor produces on structured output. The pipeline is
+buildable with perception that already exists.
+
+That took two fixes, and the first version failed completely — **2% error
+shattered four roles into eight and transfer went to zero.**
+
+The tell was that purity stayed at 1.000 the whole way down. The groups were
+never wrong, only fragmented, so the signal was intact and the criterion was
+not. Both fixes follow from that:
+
+*   **Exclusion has to be statistical.** Testing `counts == 0` assumes a
+    perfect observer: one hallucinated co-occurrence in eight hundred
+    situations permanently severs two items that belong together. What
+    survives noise is the *rate* — alternatives for one slot co-occur far
+    below independence, whether or not they manage it once.
+*   **Rare items are noise, not alternatives.** Without a frequency floor,
+    every stray item an extractor invents becomes its own singleton role, and
+    the count of discovered roles climbs with the error rate while every real
+    slot is still recovered intact.
+
+Neither is a tuning knob. Both are the difference between an algorithm written
+for a world that reports itself perfectly and one written for a world observed
+through something fallible.
+
+```
+python3 examples/finding_the_joints.py
+```
+
 ## Scientific position
 
 Predictive processing is an influential computational theory, not a settled
