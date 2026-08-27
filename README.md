@@ -1276,6 +1276,55 @@ neural. It measures what the right inductive bias plus explicit reuse is worth
 python3 examples/library_vs_gradient.py
 ```
 
+## Round seven: sleep, and what imagination can and cannot do
+
+Two offline operations, borrowed from what sleep is thought to do, measured
+separately against the library learner. Twelve seeds.
+
+| examples | cold | wake only | +consolidate | +consolidate +dream |
+|---:|---:|---:|---:|---:|
+| 4 | 0.672 | +0.104 | +0.104 | **+0.163** |
+| 8 | 0.853 | +0.052 | +0.052 | +0.022 |
+| 16 | 0.959 | +0.012 | +0.012 | +0.006 |
+| 64 | 1.000 | +0.000 | +0.000 | +0.000 |
+
+| | library size after nine rules |
+|---|---:|
+| wake only | 20.3 pieces |
+| +consolidate | **3.0 pieces** |
+| +consolidate +dream | 53.2 pieces |
+
+**Consolidation compresses the library sevenfold at no cost whatsoever.** It
+recovers exactly the three base concepts the world was built from and discards
+seventeen coincidences, and accuracy does not move by a thousandth. That is a
+real result even though the accuracy column is flat: the same knowledge in a
+seventh of the space, which is the difference between a memory that can run for
+a day and one that can run indefinitely. The frequency prior was already
+handling the coincidences; consolidation makes not storing them possible.
+
+**Dreaming helps only where data is scarcest, and hurts everywhere else.** At
+four examples it lifts the gain from +0.104 to +0.163. At eight and sixteen it
+halves it. And it inflates the library from three pieces to fifty-three —
+imagination manufacturing fifty abstractions, nearly all of them junk.
+
+The interpretation is the useful part. **Imagination cannot create
+information.** Composing pieces you already believe in and then rediscovering
+them redistributes your existing convictions; it does not add evidence. That is
+why it wins exactly when a sharp prior beats almost no data, and loses as soon
+as there is real evidence for it to override. The self-confirmation risk this
+experiment was built to expose is precisely what the numbers show.
+
+Which says what imagined experience would need in order to be worth having: an
+**external check**. DreamCoder's dreaming works because imagined programs are
+solved by real search and kept only when they verifiably compress the corpus —
+the imagination proposes and something outside it disposes. Unverified
+imagination is a prior-sharpening mechanism wearing the costume of a learning
+mechanism, and it is measurable as such.
+
+```
+python3 examples/wake_sleep.py
+```
+
 ## Scientific position
 
 Predictive processing is an influential computational theory, not a settled

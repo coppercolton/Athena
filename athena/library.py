@@ -150,6 +150,78 @@ class LibraryLearner:
                 key = tuple(sorted(part))
                 self.library[key] = self.library.get(key, 0) + 1
 
+    # ------------------------------------------------------------------
+    # sleep
+    # ------------------------------------------------------------------
+    def consolidate(self, min_reuse: int = 2) -> int:
+        """Keep only the pieces that explain more than one thing.
+
+        Learning adds every sub-expression of every rule, so the library fills
+        with coincidences: a pair that happened to co-occur in one rule looks
+        exactly like a concept that recurs throughout. Under a
+        description-length prior an abstraction is only worth its own symbol if
+        naming it shortens the description of the corpus, and a piece appearing
+        in a single rule never does -- it costs one symbol to save one.
+
+        So this drops anything that has not been reused, and rescores what
+        survives by how many *distinct* rules contain it rather than by how
+        many times enumeration happened to emit it. That is the offline
+        compression pass, and it is the operation sleep is usually credited
+        with: not acquiring anything new, but working out which of the day's
+        pieces were worth keeping.
+
+        Returns how many pieces were discarded.
+        """
+        counts: dict[Literals, int] = {}
+        for rule in self.learned.values():
+            for size in range(2, len(rule.literals)):
+                for part in combinations(rule.literals, size):
+                    key = tuple(sorted(part))
+                    counts[key] = counts.get(key, 0) + 1
+        kept = {k: c for k, c in counts.items() if c >= min_reuse}
+        dropped = len(self.library) - len(kept)
+        self.library = kept
+        return max(dropped, 0)
+
+    def dream(self, rounds: int, rng: np.random.Generator, examples: int = 64) -> int:
+        """Invent problems from the library, solve them, and learn from that.
+
+        Sampling a concept the library already believes in, inventing a rule
+        around it and then rediscovering that rule proves nothing on its own --
+        the answer was baked into the question. What it can do is find which
+        *compositions* are learnable and reinforce the pieces that keep
+        appearing in solutions, without spending real examples.
+
+        The self-confirmation risk is real and is exactly what the experiment
+        is for: a system that dreams only what it already believes should show
+        no gain, or a loss as coincidences get amplified into convictions.
+
+        Returns the number of imagined rules solved.
+        """
+        if not self.library:
+            return 0
+        concepts = list(self.library)
+        solved = 0
+        for index in range(rounds):
+            concept = concepts[int(rng.integers(0, len(concepts)))]
+            taken = {i for i, _ in concept}
+            free = [i for i in range(self.features) if i not in taken]
+            if not free:
+                continue
+            extra = (int(rng.choice(free)), bool(rng.random() < 0.5))
+            invented = Rule(tuple(sorted((*concept, extra))))
+
+            x = (rng.random((examples, self.features)) < 0.5).astype(float)
+            y = invented.holds(x).astype(int)
+            if y.mean() in (0.0, 1.0):
+                continue  # nothing to learn from a rule nothing satisfies
+            imagined = [Sample(row, int(label)) for row, label in zip(x, y)]
+            self.teach(f"__dream{index}", imagined)
+            solved += 1
+        for key in [k for k in self.learned if k.startswith("__dream")]:
+            del self.learned[key]
+        return solved
+
     def accuracy(self, name: str, cases: list[Sample]) -> float:
         rule = self.learned.get(name)
         if rule is None:
