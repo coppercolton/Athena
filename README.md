@@ -1360,6 +1360,82 @@ What remains is what has a number behind it:
 Sixteen modules, four test suites, and every claim in this file reproducible
 from a script in `examples/`.
 
+## Round eight: the binding problem is arithmetic
+
+Vision-language models confuse "a red cube and a blue cylinder" with "a blue
+cube and a red cylinder". They hold all four concepts and lose the pairing.
+This reads like a training failure. It is not.
+
+A scene encoded as a bag of features is a **sum**, and addition commutes:
+
+```
+red + cube + blue + cylinder   ==   blue + cube + red + cylinder
+```
+
+Measured across 400 random scenes, at every scene size: **100% of swapped
+scenes produce a bit-identical vector**, cosine similarity 1.0000. No quantity
+of data separates what the representation cannot express.
+
+Bind before bundling and the problem disappears. Over bipolar vectors,
+elementwise multiplication is invertible, and in high dimension random vectors
+are near-orthogonal for free:
+
+```
+sim(red, blue)          -0.004     unrelated concepts miss each other
+sim(red, red*cube)      -0.011     a pair is orthogonal to its own halves
+(red*cube) * cube    ->  red       what was bound can be asked back
+```
+
+| objects in scene | bag of features | bound |
+|---:|---:|---:|
+| 2 | 0.320 | **1.000** |
+| 3 | 0.300 | **1.000** |
+| 4 | 0.333 | **1.000** |
+| 5 | 0.318 | **1.000** |
+| 6 | 0.378 | **1.000** |
+
+Chance is 0.500, and the bag cannot reach it — the two scenes it must
+distinguish are the same vector, so it is guessing on noise.
+
+This also gives the apple: one fixed-width vector holding many facts at once,
+each recoverable by asking for it.
+
+```
+apple = colour*red + shape*round + taste*sweet + affords*throwable + ...
+apple * colour  ->  red
+```
+
+Capacity, measured — proportion of facts correctly recalled:
+
+| facts | D=1,000 | D=4,000 | D=10,000 | D=32,000 |
+|---:|---:|---:|---:|---:|
+| 16 | 1.000 | 1.000 | 1.000 | 1.000 |
+| 64 | 0.771 | 1.000 | 1.000 | 1.000 |
+| 128 | 0.360 | 0.949 | 1.000 | 1.000 |
+| 256 | 0.120 | 0.630 | 0.976 | 1.000 |
+
+Recall is perfect while the number of facts stays under roughly **D/80**, then
+superposition noise swamps the signal. Capacity is linear in dimension, which
+is a cheap price.
+
+**None of this is new.** It is Smolensky's tensor-product binding by way of
+Plate's holographic reduced representations and Kanerva's hyperdimensional
+computing, and it dates to the 1990s. The near-orthogonality it depends on is
+the same condition recent work derives as *necessary* for compositional
+generalisation: concepts as linear directions, orthogonal across concepts.
+
+**And the gap is the same one this repository keeps arriving at.** The atoms
+here — `red`, `cube`, `colour` — are handed to the system, exactly as the
+library learner was handed the fact that rules are conjunctions. The algebra
+composes flawlessly over a vocabulary somebody else wrote down. Nobody has a
+good way to *learn* the atoms from raw perception while preserving the algebra,
+and that, not the binding, is what stands between this and the thing it looks
+like it should be.
+
+```
+python3 examples/binding_problem.py
+```
+
 ## Scientific position
 
 Predictive processing is an influential computational theory, not a settled
