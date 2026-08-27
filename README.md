@@ -1489,6 +1489,71 @@ two, and it is the most reliable bug detector in this file.
 python3 examples/abstract_analogy.py
 ```
 
+## Round ten: the joints are learnable
+
+Four independent routes had reached the same wall. Predictive coding was given
+its hierarchy, the library learner was told rules are conjunctions, binding was
+handed its atoms, and analogy needed its roles pre-aligned. The composition
+machinery works; producing the vocabulary from experience seemed to be the
+unsolved part.
+
+For the role vocabulary, it is not.
+
+A system watches situations go by — unordered bags of things that happened
+together, no labels, no slots, no slot count, no hint that "role" is a concept.
+Two statistical facts are enough:
+
+*   **Within a domain**, a role is a set of pairwise mutually exclusive items
+    whose occurrence counts sum to the number of situations. Exactly one thing
+    fills a slot each time, so the alternatives partition the episodes between
+    them. Nothing else in the data has that property.
+*   **Across domains**, a role is identified by its relational signature — how
+    many ways it can be filled, and how strongly it moves with the others. That
+    signature mentions no filler, so it survives translation to a domain
+    sharing no vocabulary at all.
+
+Four domains, 800 unlabelled situations each, 12 seeds:
+
+| roles come from | transfer accuracy |
+|---|---:|
+| given (the round-nine upper bound) | 1.000 |
+| **discovered from co-occurrence** | **1.000** |
+| discovered, then aligned at random | 0.231 |
+| assigned at random | 0.177 |
+| chance | 0.019 |
+
+Roles discovered per domain: **4.00**, true value 4. Grouping purity: **1.000**.
+
+**Analogy over roles the system found for itself is exactly as good as analogy
+over roles it was handed.** The vocabulary was learnable, and the algebra
+survived learning it intact.
+
+### Where it actually stops
+
+Two failed attempts mark the boundary, and both are more informative than the
+result. Grouping by "never co-occur and keeps the same company" shatters a slot
+wherever one slot *depends* on another — distributional equivalence fails
+exactly where the interesting relational structure is. Grouping by mutual
+exclusion alone fuses those same two slots, because a dependency also stops
+some cross-slot pairs from ever co-occurring. Only the counting criterion
+separates them.
+
+And the honest limit, measured: in a **symmetric** world — every slot the same
+size, no dependencies — grouping still works perfectly (4.00 slots, purity
+1.000) while alignment collapses to 0.219. The partition is always visible. The
+*correspondence* needs roles to differ in some way that survives translation.
+Real domains are asymmetric, so this is a mild requirement, but it is a
+requirement.
+
+What remains supplied is one level lower than it was: the observations arrive
+already segmented into discrete items. Turning raw perception into a stable
+inventory of *things* is untouched here, and that — not the roles — is where
+the wall actually is.
+
+```
+python3 examples/finding_the_joints.py
+```
+
 ## Scientific position
 
 Predictive processing is an influential computational theory, not a settled
