@@ -37,6 +37,9 @@ from dataclasses import dataclass, field
 
 import numpy as np
 
+BLOCK = 4096
+"""Situations counted at once. Bounds memory without changing the result."""
+
 
 @dataclass
 class Discovery:
@@ -48,14 +51,35 @@ class Discovery:
 
 
 def cooccurrence(episodes: list[list[str]]) -> tuple[np.ndarray, list[str]]:
+    """How often each pair of items was seen together, and the vocabulary.
+
+    Counted as an indicator matrix times its own transpose. The obvious nested
+    loop is quadratic in items *per episode* and interpreted, which puts the
+    ceiling on any measurement of how this scales at a few dozen roles -- far
+    below where the method itself gives out.
+
+    Multiplicity is kept rather than collapsed: an item an extractor reports
+    twice in one situation counts twice, which is what the loop did. Counting
+    set membership instead is defensible and is *not* the same statistic --
+    it changes the measured noise tolerance -- so it is left as a separate
+    question rather than smuggled in with an optimisation.
+
+    Episodes are processed in blocks. Building one indicator matrix over the
+    whole corpus would be 40GB at a million situations and a ten-thousand word
+    vocabulary -- a memory wall the nested loop did not have, traded for the
+    time wall it did. Blocking keeps both bounded; only the vocabulary-squared
+    result matrix grows, and that is intrinsic to counting pairs.
+    """
     items = sorted({item for episode in episodes for item in episode})
     index = {item: i for i, item in enumerate(items)}
     counts = np.zeros((len(items), len(items)))
-    for episode in episodes:
-        ids = [index[item] for item in episode]
-        for a in ids:
-            for b in ids:
-                counts[a, b] += 1
+    for start in range(0, len(episodes), BLOCK):
+        block = episodes[start : start + BLOCK]
+        present = np.zeros((len(block), len(items)), dtype=np.float32)
+        for row, episode in enumerate(block):
+            for item in episode:
+                present[row, index[item]] += 1.0
+        counts += present.T @ present
     return counts, items
 
 

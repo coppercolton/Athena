@@ -19,7 +19,8 @@ import numpy as np
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from athena.joints import align, discover_slots, slot_signature
+import athena.joints as joints
+from athena.joints import align, cooccurrence, discover_slots, slot_signature
 
 SLOTS = [
     ["water", "oil", "steam", "slurry"],
@@ -131,6 +132,56 @@ def test_no_structure_yields_no_confident_roles():
     found = discover_slots(data)
     assert as_sets(found) != TRUE
     assert all(len(g) <= 2 for g in found), found
+
+
+def test_cooccurrence_is_exact_at_any_block_size():
+    """Blocking bounds memory and must not touch the result -- including the
+    duplicate items a noisy extractor produces, which are counted with
+    multiplicity."""
+    data = episodes(np.random.default_rng(7), 600, rate=0.35)
+    reference = np.zeros((0, 0))
+    items: list[str] = []
+    original = joints.BLOCK
+    try:
+        for block in (4096, 128, 7, 1):
+            joints.BLOCK = block
+            counts, items = cooccurrence(data)
+            if reference.size == 0:
+                reference = np.zeros((len(items), len(items)))
+                where = {item: i for i, item in enumerate(items)}
+                for episode in data:
+                    ids = [where[i] for i in episode]
+                    for a in ids:
+                        for b in ids:
+                            reference[a, b] += 1
+            assert np.array_equal(counts, reference), block
+    finally:
+        joints.BLOCK = original
+
+
+def test_scales_to_many_roles():
+    """Roles are close to free: the cost is in pairs of items, not in slots."""
+    rng = np.random.default_rng(8)
+    roles, fillers = 40, 4
+    truth = {frozenset(f"r{r}_v{v}" for v in range(fillers)) for r in range(roles)}
+    picks = rng.integers(0, fillers, size=(2000, roles))
+    data = [[f"r{r}_v{picks[e, r]}" for r in range(roles)] for e in range(2000)]
+    found = {frozenset(g) for g in discover_slots(data)}
+    assert found == truth, len(found & truth)
+
+
+def test_wide_roles_need_more_situations_not_a_different_method():
+    """A 16-way attribute is recoverable; it just needs the data to see the
+    pairs. This pins the failure as statistical rather than structural."""
+    def run(count):
+        rng = np.random.default_rng(9)
+        truth = {frozenset(f"r{r}_v{v}" for v in range(16)) for r in range(6)}
+        picks = rng.integers(0, 16, size=(count, 6))
+        data = [[f"r{r}_v{picks[e, r]}" for r in range(6)] for e in range(count)]
+        return len({frozenset(g) for g in discover_slots(data)} & truth)
+
+    assert run(200) < 6
+    assert run(4000) == 6
 
 
 if __name__ == "__main__":

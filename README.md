@@ -1857,6 +1857,90 @@ python3 examples/paying_rent.py
 ```
 
 
+## Round fourteen: where does it stop?
+
+Every result in rounds ten to thirteen was measured on four or five roles with
+a handful of fillers. That is small enough that "it works" carries almost no
+information. Three dimensions, pushed until something breaks.
+
+### Roles are close to free
+
+| roles | vocabulary | recovered exactly | seconds |
+|---:|---:|---:|---:|
+| 4 | 16 | **1.000** | 0.00 |
+| 16 | 64 | **1.000** | 0.01 |
+| 64 | 256 | **1.000** | 0.04 |
+| 128 | 512 | **1.000** | 0.10 |
+
+**No degradation at all to 128 attributes per situation**, at fixed data. This
+was the failure I expected — quadratically many pairs means quadratically many
+chances for a pair to look exclusive by accident — and it does not happen,
+because the counting rule rejects an accidental pairing on mass regardless of
+how many candidates were considered.
+
+### Fillers are what break it, and only through data
+
+| fillers per role | recovered at 2000 situations |
+|---:|---:|
+| 2–16 | **1.000** |
+| 32 | 0.833 |
+| 64 | 0.333 |
+
+Two alternatives for a 64-way attribute are each rare, so the evidence that
+they exclude one another is thin. But this is a **data** limit, not an
+algorithmic one, and the exchange rate is measurable:
+
+| fillers | 250 | 500 | 1000 | 2000 | 4000 | 8000 |
+|---:|---:|---:|---:|---:|---:|---:|
+| 4 | **1.00** | 1.00 | 1.00 | 1.00 | 1.00 | 1.00 |
+| 8 | 0.92 | **1.00** | 1.00 | 1.00 | 1.00 | 1.00 |
+| 16 | 0.38 | 0.83 | **1.00** | 1.00 | 1.00 | 1.00 |
+| 32 | 0.00 | 0.08 | 0.46 | 0.83 | 0.92 | **1.00** |
+
+Situations needed grows as **roughly the square of the fillers** — which is
+what the statistics predict, since the expected joint count for a specific pair
+under independence is `N / f²`. A 32-way attribute needs about 8000 examples.
+That is a mild requirement, and it is the whole cost.
+
+### What does not scale is the search on top
+
+| roles | agreement predicates | conjunctions ≤3 literals |
+|---:|---:|---:|
+| 4 | 6 | 4,992 |
+| 64 | 2,016 | 22,239,232 |
+| 1024 | **523,776** | **91,592,425,472** |
+
+General conjunctive rule search is cubic in vocabulary and hits 91 billion
+candidates at a thousand roles. That is the classic program-synthesis wall and
+nothing here solves it.
+
+**But round thirteen already found that the conjunctive hypotheses are the ones
+structure does not help with, and the relational ones are where it is the
+difference between chance and perfect.** Those grow quadratically in roles —
+half a million at a thousand roles, entirely searchable. The part that scales
+is the part that pays. That is fortunate rather than clever, and it is the
+strongest argument the project has that it is pointed somewhere.
+
+### The remaining walls, stated plainly
+
+*   **Vocabulary², intrinsic.** Counting pairs means a V×V matrix: 0.8GB at ten
+    thousand items, 80GB at a hundred thousand. Fine for a scene-graph
+    vocabulary, not for open text without an approximate method.
+*   **Optional roles below ~30% presence**, from round twelve. Independent of
+    scale, and not a knob.
+*   **Correlated attributes.** Mushroom's 15/22 — two roles that almost always
+    agree are not separable by exclusion, at any data volume.
+
+One wall was self-inflicted and is gone: vectorising the count built a dense
+situations×vocabulary matrix, 40GB at a million situations, which the original
+nested loop never needed. It is now counted in blocks, exact at any block size
+and tested to be.
+
+```
+python3 examples/does_it_scale.py
+```
+
+
 ## Scientific position
 
 Predictive processing is an influential computational theory, not a settled
@@ -1916,14 +2000,14 @@ not bundle or train a foundation model.
 
 ## Validation and layout
 
-The regression suite passes **59 / 59** behavioural tests.
+The regression suite passes **62 / 62** behavioural tests.
 
 ```bash
 python3 tests/test_athena.py      # 16 numeric world-model tests
 python3 tests/test_continual.py   # 13 replay, consolidation, interference tests
 python3 tests/test_plasticity.py  #  8 shared-plasticity and retention tests
 python3 tests/test_transfer.py    #  8 progressive-registry transfer tests
-python3 tests/test_joints.py      #  7 role-discovery tests
+python3 tests/test_joints.py      # 10 role-discovery and scaling tests
 python3 tests/test_library.py     #  7 hypothesis-space and reuse tests
 ```
 
@@ -1945,6 +2029,7 @@ python3 examples/abstract_analogy.py       # transfer over shared roles
 python3 examples/finding_the_joints.py     # the roles are learnable
 python3 examples/real_data.py              # on data nobody generated for it
 python3 examples/paying_rent.py            # what the structure actually buys
+python3 examples/does_it_scale.py          # where it stops, and why
 ```
 
 | path | purpose |
