@@ -1276,50 +1276,55 @@ neural. It measures what the right inductive bias plus explicit reuse is worth
 python3 examples/library_vs_gradient.py
 ```
 
-## Round seven: sleep, and what imagination can and cannot do
+## Round seven: sleep, imagination, and the rejection step
 
-Two offline operations, borrowed from what sleep is thought to do, measured
-separately against the library learner. Twelve seeds.
+Three offline operations, borrowed from what sleep is thought to do, measured
+separately over twelve seeds. Numbers are the gain from nine rules of prior
+experience when learning a tenth.
 
-| examples | cold | wake only | +consolidate | +consolidate +dream |
-|---:|---:|---:|---:|---:|
-| 4 | 0.672 | +0.104 | +0.104 | **+0.163** |
-| 8 | 0.853 | +0.052 | +0.052 | +0.022 |
-| 16 | 0.959 | +0.012 | +0.012 | +0.006 |
-| 64 | 1.000 | +0.000 | +0.000 | +0.000 |
+| examples | cold | wake only | +consolidate | +dream | **+dream +verify** |
+|---:|---:|---:|---:|---:|---:|
+| 4 | 0.672 | +0.104 | +0.104 | +0.163 | **+0.163** |
+| 8 | 0.853 | +0.052 | +0.052 | +0.022 | **+0.052** |
+| 16 | 0.959 | +0.012 | +0.012 | +0.006 | **+0.012** |
+| 64 | 1.000 | +0.000 | +0.000 | +0.000 | +0.000 |
 
 | | library size after nine rules |
 |---|---:|
 | wake only | 20.3 pieces |
 | +consolidate | **3.0 pieces** |
-| +consolidate +dream | 53.2 pieces |
+| +dream | 53.2 pieces |
+| +dream +verify | 13.8 pieces |
 
-**Consolidation compresses the library sevenfold at no cost whatsoever.** It
-recovers exactly the three base concepts the world was built from and discards
-seventeen coincidences, and accuracy does not move by a thousandth. That is a
-real result even though the accuracy column is flat: the same knowledge in a
-seventh of the space, which is the difference between a memory that can run for
-a day and one that can run indefinitely. The frequency prior was already
-handling the coincidences; consolidation makes not storing them possible.
+**Consolidation compresses sevenfold for free.** Dropping every piece that
+appears in only one learned rule takes the library from 20.3 to 3.0 and
+recovers exactly the three concepts the world was built from, with accuracy
+unchanged to four decimals. The flat accuracy column undersells it: a memory
+that grows without bound is a memory that dies, and 20 pieces after nine rules
+is 2,000 after nine hundred. This is what sleep is usually credited with — not
+acquiring anything, but working out which of the day's patterns were patterns.
 
-**Dreaming helps only where data is scarcest, and hurts everywhere else.** At
-four examples it lifts the gain from +0.104 to +0.163. At eight and sixteen it
-halves it. And it inflates the library from three pieces to fifty-three —
-imagination manufacturing fifty abstractions, nearly all of them junk.
+**Imagination alone amplifies its own coincidences.** Inventing rules from
+library pieces and solving them helps where data is scarcest (+0.163 at four
+examples) and *hurts* everywhere else, halving the gain at eight and sixteen
+while inflating the library to 53 pieces — fifty manufactured concepts, nearly
+all junk. Nothing new entered the system; composing what you already believe
+and rediscovering it produces confidence, not evidence. It wins only where a
+sharp prior beats almost no data, and loses the moment there is real evidence
+for it to override.
 
-The interpretation is the useful part. **Imagination cannot create
-information.** Composing pieces you already believe in and then rediscovering
-them redistributes your existing convictions; it does not add evidence. That is
-why it wins exactly when a sharp prior beats almost no data, and loses as soon
-as there is real evidence for it to override. The self-confirmation risk this
-experiment was built to expose is precisely what the numbers show.
+**The rejection step recovers everything and costs nothing.** Discarding
+imagined pieces that appear in no rule actually learned — while keeping the
+counts dreaming accumulated for those that do — keeps the *entire* benefit
+where imagination helps (+0.163, identical) and removes the *entire* harm where
+it did not (+0.052 and +0.012, back to baseline). It is strictly dominant.
 
-Which says what imagined experience would need in order to be worth having: an
-**external check**. DreamCoder's dreaming works because imagined programs are
-solved by real search and kept only when they verifiably compress the corpus —
-the imagination proposes and something outside it disposes. Unverified
-imagination is a prior-sharpening mechanism wearing the costume of a learning
-mechanism, and it is measurable as such.
+The lesson is about what makes imagination worth having. Not accuracy: an
+imagined approach is usually wrong. What makes it valuable is being cheap to
+generate *and cheap to reject*, and the version without `verify` had no
+rejection step at all. Imagination proposes; observation disposes. A system
+that keeps everything it imagines is not thinking, it is confabulating — and
+the difference is measurable, at 0.03 accuracy and forty junk concepts.
 
 ```
 python3 examples/wake_sleep.py

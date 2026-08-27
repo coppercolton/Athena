@@ -222,6 +222,33 @@ class LibraryLearner:
             del self.learned[key]
         return solved
 
+    def verify(self) -> int:
+        """Discard imagined pieces that never appear in anything actually observed.
+
+        Dreaming without this accepts every invention, which is why forty
+        imagined rules turned a three-piece library into fifty-three and made
+        the learner worse wherever real evidence existed. The imagining was
+        never the problem; keeping all of it was.
+
+        What survives here is only what is *grounded*: a piece that occurs in
+        some rule learned from real examples. Crucially the counts accumulated
+        while dreaming are kept for those survivors, so imagination can still
+        do the one thing it is genuinely able to do -- sharpen belief about
+        concepts that are already attested -- while being unable to invent new
+        ones out of its own confidence.
+
+        Imagination proposes; observation disposes. Returns the number of
+        imagined pieces discarded.
+        """
+        grounded: set[Literals] = set()
+        for rule in self.learned.values():
+            for size in range(2, len(rule.literals)):
+                for part in combinations(rule.literals, size):
+                    grounded.add(tuple(sorted(part)))
+        before = len(self.library)
+        self.library = {k: v for k, v in self.library.items() if k in grounded}
+        return before - len(self.library)
+
     def accuracy(self, name: str, cases: list[Sample]) -> float:
         rule = self.learned.get(name)
         if rule is None:

@@ -17,10 +17,22 @@ to do, and measured separately so it is clear which one carries the result:
     for them, solve them as if they were new, and keep whatever the solutions
     used. No real data is consumed.
 
-Dreaming has an obvious failure mode and the experiment exists to expose it: a
-system that imagines only what it already believes can amplify its own
-coincidences into convictions. If the gain is real it should hold where data is
-scarcest and not reverse when data is plentiful.
+``verify``
+    The rejection step. After dreaming, discard every piece that does not
+    appear in some rule actually learned from real examples, while keeping the
+    counts dreaming accumulated for those that do. Imagination may sharpen
+    belief about attested concepts; it may not invent new ones.
+
+Dreaming alone has an obvious failure mode and the first run of this experiment
+found it: imagining only what you already believe amplifies coincidences into
+convictions, helping where data is scarcest (+0.163 at four examples) and
+hurting everywhere else, while inflating a three-piece library to fifty-three.
+
+What makes imagination worth having in people is not that it is accurate but
+that it is cheap to produce *and cheap to reject*. The version without
+``verify`` had no rejection step at all. The prediction for the version with
+one: the gain where data is scarce survives, and the harm where evidence exists
+does not.
 
     python3 examples/wake_sleep.py
 """
@@ -44,7 +56,7 @@ TEST = 2000
 PRIOR = 256
 DREAMS = 40
 COUNTS = (4, 8, 16, 64)
-MODES = ("wake only", "+consolidate", "+consolidate +dream")
+MODES = ("wake only", "+consolidate", "+dream", "+dream +verify")
 
 
 def build(mode: str, rules, seed: int) -> LibraryLearner:
@@ -53,8 +65,10 @@ def build(mode: str, rules, seed: int) -> LibraryLearner:
         learner.teach(f"r{index}", rule_examples(rule, PRIOR, FEATURES, seed * 50 + index))
     if mode != "wake only":
         learner.consolidate()
-    if mode == "+consolidate +dream":
+    if mode.startswith("+dream"):
         learner.dream(DREAMS, np.random.default_rng(seed))
+    if mode == "+dream +verify":
+        learner.verify()
     return learner
 
 
