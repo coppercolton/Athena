@@ -1044,6 +1044,76 @@ disappears. It was tuned on a separate probe before the reported run.
 python3 examples/what_to_store.py --data <dir with MNIST idx.gz files>
 ```
 
+## Round three: how little does a memory need to contain?
+
+Two sweeps, following from the finding that richer targets beat richer
+selection.
+
+**Compression.** How far can the buffer shrink before each rehearsal loss
+fails? The prediction was that the advantage of storing outputs would widen
+monotonically as slots got scarcer. It does not:
+
+| slots | hard | der++ | gap |
+|---|---:|---:|---:|
+| 50 | 0.620 | 0.679 | +0.059 |
+| 200 | 0.749 | 0.829 | **+0.080** |
+| 1000 | 0.844 | 0.885 | +0.041 |
+| 2000 | 0.866 | 0.896 | +0.030 |
+
+The advantage *peaks* at moderate compression and falls away at 50 slots.
+Rehearsing a function needs enough probe points to pin that function down;
+below some floor there is not enough of it left to be worth describing richly,
+and a richer description of almost nothing is still almost nothing.
+
+**Realism.** If rehearsal transmits a function rather than data, the stored
+inputs are only probe points and might not need to be real. They do:
+
+| slots | stored inputs | avg acc | first task |
+|---|---|---:|---:|
+| 200 | real | **0.829** | 0.765 |
+| 200 | shuffled pixels | 0.608 | 0.354 |
+| 200 | uniform noise | 0.568 | 0.294 |
+| 1000 | real | **0.885** | 0.860 |
+| 1000 | shuffled pixels | 0.702 | 0.549 |
+| 1000 | uniform noise | 0.569 | 0.312 |
+
+Not merely worse — *far below the hard-label baseline they were supposed to
+beat*, and worse with more slots, because a larger buffer means more of the
+rehearsal budget spent constraining the network somewhere it will never be
+asked to work. Matching an old function off the data manifold consumes capacity
+and preserves nothing.
+
+So rehearsal is not function transfer. It is function transfer **on the data
+manifold**, and the data is doing indispensable work: it says *where* the
+function has to be preserved. That closes off the privacy-friendly version of
+this idea, which is worth knowing before building on it.
+
+### What the frontier is converging on
+
+Reading the current literature against these results, one pattern stands out.
+Every method that works is a version of the same thing: keep a slower copy of
+yourself and be pulled toward it.
+
+* [EWC](https://arxiv.org/abs/1612.00796) anchors weights to their earlier values.
+* [DER++](https://proceedings.neurips.cc/paper/2020/file/b704ea2c39778f07c617f6b7ce480e9e-Paper.pdf) anchors the *function* to a frozen snapshot of its own outputs.
+* [Self-distillation for continual learning](https://arxiv.org/pdf/2601.19897) (2026) makes the previous model the teacher.
+* [SuRe](https://arxiv.org/abs/2511.22367) pairs a fast and a slow adapter merged by EMA.
+* [Nested Learning / HOPE](https://research.google/blog/introducing-nested-learning-a-new-ml-paradigm-for-continual-learning/) generalises it to a continuum of memory modules, each updating at its own rate.
+
+None of the methods that work are about selecting better data. Every experiment
+here agrees: selection lost, and the thing that won -- storing the old
+function's outputs -- is itself a two-timescale mechanism, a frozen slow copy
+constraining fast-moving weights.
+
+That suggests the question worth asking next, which the field has stated as a
+principle but not cleanly measured: **how many timescales, and where does it
+saturate?** One anchor is DER++. Two is SuRe. A continuum is HOPE. Nobody has
+run the ablation on a single benchmark with everything else held fixed.
+
+```
+python3 examples/how_little.py --data <dir with MNIST idx.gz files>
+```
+
 ## Scientific position
 
 Predictive processing is an influential computational theory, not a settled

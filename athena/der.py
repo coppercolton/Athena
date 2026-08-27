@@ -37,6 +37,7 @@ import numpy as np
 from .continual import ContinualConfig, MultiClassLearner, Sample
 
 Mode = Literal["hard", "logits", "der++"]
+Probe = Literal["real", "noise", "shuffled"]
 
 
 class _LogitReservoir:
@@ -70,12 +71,16 @@ class DERLearner(MultiClassLearner):
         *,
         classes: int = 10,
         mode: Mode = "hard",
+        probe: Probe = "real",
         alpha: float = 0.5,
         beta: float = 0.5,
     ) -> None:
         if mode not in ("hard", "logits", "der++"):
             raise ValueError(f"unknown mode: {mode}")
+        if probe not in ("real", "noise", "shuffled"):
+            raise ValueError(f"unknown probe: {probe}")
         self.mode = mode
+        self.probe = probe
         self.alpha = float(alpha)
         self.beta = float(beta)
         super().__init__(config, classes=classes)
@@ -143,6 +148,29 @@ class DERLearner(MultiClassLearner):
             np.stack([buffer.logits[int(i)] for i in picks]),
         )
 
+    def _probe_inputs(self, x: np.ndarray) -> np.ndarray:
+        """What gets stored as the input half of a rehearsal pair.
+
+        If rehearsal works by transmitting the *function* rather than the data,
+        the stored inputs are only probe points -- places where the old and new
+        networks are compared -- and need not be real examples at all. That
+        would matter well beyond this benchmark: a system that can preserve its
+        own capability without retaining any real user data has a very
+        different deployment story from one that cannot.
+
+        ``noise`` tests the strong version (inputs carrying no data whatsoever)
+        and ``shuffled`` the weak one (pixel statistics preserved, structure
+        destroyed).
+        """
+        if self.probe == "real":
+            return x
+        if self.probe == "noise":
+            return self._rng.uniform(x.min(), x.max(), size=x.shape)
+        shuffled = x.copy()
+        for row in shuffled:
+            self._rng.shuffle(row)
+        return shuffled
+
     def observe(self, skill: str, batch: Sequence[Sample]) -> None:
         if not batch:
             raise ValueError("batch must not be empty")
@@ -152,8 +180,12 @@ class DERLearner(MultiClassLearner):
         fresh_y = np.asarray([c.target for c in batch], dtype=float)
         # Logits recorded at insertion time, which is what makes them a record
         # of the function as it stood when the example was current.
-        snapshot = self._logits(skill, self._forward(fresh_x)[-1])
-        for item, row in zip(batch, snapshot):
+        stored_x = self._probe_inputs(fresh_x)
+        snapshot = self._logits(skill, self._forward(stored_x)[-1])
+        stored = [
+            Sample(row, int(item.target)) for row, item in zip(stored_x, batch)
+        ] if self.probe != "real" else list(batch)
+        for item, row in zip(stored, snapshot):
             self._replay[skill].add(item, row.copy())
 
         replayed = self._replay_with_targets(skill, self.config.replay_per_step)
