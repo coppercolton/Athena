@@ -1163,6 +1163,62 @@ here; what is outside the noise is that nothing was gained.
 python3 examples/how_many_timescales.py --data <dir with MNIST idx.gz files>
 ```
 
+## Round five: what "shared structure" has to mean
+
+Every benchmark used up to here was Permuted-MNIST, where each task is an
+arbitrary pixel shuffle. Nothing can be *taught* in such a world because there
+is nothing to learn *about*; a system can only be drilled. So the benchmark was
+replaced with one where teaching is possible: objects with attributes, and
+rules that are small logical statements over them.
+
+The first version of that world was still wrong, in a way worth recording. Each
+rule was an independent triple of attributes, which makes rules that share an
+alphabet and nothing else -- two random 3-subsets of twelve attributes usually
+overlap in nothing. In the second version a small library of base concepts is
+drawn once and every rule is one of those concepts plus an extra literal, so
+rules genuinely *reuse sub-expressions*.
+
+The tenth rule, learned cold versus learned after nine others (5 seeds):
+
+| examples | cold | after 9 (shared alphabet) | after 9 (shared sub-expressions) |
+|---:|---:|---:|---:|
+| 4 | 0.683 | −0.052 | **+0.026** |
+| 16 | 0.865 | −0.035 | **+0.035** |
+| 64 | 0.977 | −0.033 | −0.018 |
+| 256 | 1.000 | −0.003 | −0.017 |
+
+Two things fall out, and together they explain most of this repository.
+
+**Sharing an input space is not sharing structure.** With a common alphabet and
+no common sub-parts, nine rules of experience make the tenth *harder* at every
+sample size. The transfer everyone hopes for requires reusable pieces, not
+merely a common notation. Getting this wrong is easy: the first version of this
+benchmark looked compositional and was not.
+
+**Prior experience substitutes for data, and only for data.** Where reuse is
+real, it helps at 4 and 16 examples and *hurts* at 64 and 256. Once there are
+enough examples to identify the rule outright, everything carried over is
+interference. So the compounding this project was built to produce lives
+specifically in the few-shot regime — and every experiment before this one used
+hundreds or thousands of examples per task, which is the one regime where the
+effect cannot appear. The instrument was set to a range that excluded the
+signal.
+
+For comparison, an episodic learner that stores examples verbatim and answers
+by similarity acquires instantly and never forgets, but tops out at 0.88 where
+gradient learning reaches 1.000. Storage is not understanding.
+
+**What is still missing is the thing the project is named for.** Both columns
+above need *examples*. A person told "bishops move diagonally" needs one
+sentence, no drill, and can use it immediately on a board sharing no surface
+features with any example. Neither gradient descent nor retrieval does that,
+and nothing measured here closes the gap — it only says where to look: the
+few-shot end, in worlds with genuine reuse.
+
+```
+python3 examples/being_taught.py
+```
+
 ## Scientific position
 
 Predictive processing is an influential computational theory, not a settled
