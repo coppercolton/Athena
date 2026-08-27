@@ -1,0 +1,159 @@
+"""A library of reusable parts, and what it buys.
+
+Round five found compounding in a gradient network -- learning nine rules made
+the tenth cheaper -- but only barely (+0.035 at sixteen examples) and only when
+the rules genuinely shared sub-expressions. A distributed network learns
+*features*, and features interfere: nothing in it says "this exact piece was
+useful before, keep it whole and reuse it."
+
+This is the other option. Keep the pieces explicitly. When a rule is learned,
+break it into sub-expressions and add them to a library. When the next rule
+arrives, search compositions of library pieces before searching from scratch.
+The library is the memory, and unlike a weight it does not get overwritten by
+the next thing learned.
+
+The mechanism is not subtle, which is the point. Finding a three-literal rule
+over twelve attributes from nothing means choosing among 1,760 candidates. With
+a library holding the right two-literal concept, it means choosing among about
+sixty -- one library entry plus one more literal. From four examples that
+difference is decisive, because a space of 1,760 hypotheses contains many that
+fit four examples by luck and a space of sixty contains far fewer.
+
+This is the idea behind library learning in program synthesis (DreamCoder and
+its relatives), reduced to the smallest form that can be measured against the
+gradient learner on identical data.
+
+**What this comparison does and does not show.** The searcher below knows rules
+are conjunctions; the network does not. So a win here is not evidence that
+symbolic beats neural. It measures what the *right inductive bias plus explicit
+reuse* is worth, which is the question -- and it is only interesting because
+the network was given the same examples and the same nine rules of prior
+experience.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+from itertools import combinations
+
+import numpy as np
+
+from .continual import Sample
+from .taught import Rule
+
+Literals = tuple[tuple[int, bool], ...]
+
+
+@dataclass
+class LibraryLearner:
+    """Learns conjunctions, keeping useful sub-expressions for reuse."""
+
+    features: int
+    max_literals: int = 3
+    library: dict[Literals, int] = field(default_factory=dict)
+    learned: dict[str, Rule] = field(default_factory=dict)
+    searched: dict[str, int] = field(default_factory=dict)
+
+    # ------------------------------------------------------------------
+    def _from_library(self) -> list[Literals]:
+        """Candidates built by extending a remembered piece with one literal.
+
+        Ordered by how often each piece has proved useful, so a library that
+        has seen a concept repeatedly reaches for it first.
+        """
+        out: list[Literals] = []
+        for concept in sorted(self.library, key=lambda c: -self.library[c]):
+            taken = {i for i, _ in concept}
+            for index in range(self.features):
+                if index in taken:
+                    continue
+                for polarity in (True, False):
+                    out.append(tuple(sorted((*concept, (index, polarity)))))
+        return out
+
+    def _from_scratch(self) -> list[Literals]:
+        out: list[Literals] = []
+        for size in range(1, self.max_literals + 1):
+            for picks in combinations(range(self.features), size):
+                for mask in range(1 << size):
+                    out.append(
+                        tuple(
+                            (int(i), bool(mask >> b & 1))
+                            for b, i in enumerate(picks)
+                        )
+                    )
+        return out
+
+    @staticmethod
+    def _score(literals: Literals, x: np.ndarray, y: np.ndarray) -> float:
+        holds = np.ones(len(x), dtype=bool)
+        for index, want in literals:
+            holds &= (x[:, index] > 0.5) == want
+        return float((holds.astype(int) == y).mean())
+
+    # ------------------------------------------------------------------
+    def _cost(self, literals: Literals) -> float:
+        """Description length: a remembered piece costs less than its parts.
+
+        This is where the library earns its keep, and the first version of this
+        class got it wrong in an instructive way. Searching library candidates
+        *first* changed both the reachable hypotheses and the order they were
+        found in, so a win could not be attributed to reuse rather than to a
+        different tie-break -- and with four examples, where dozens of
+        hypotheses fit perfectly, the tie-break is the entire decision.
+
+        Now the search space is identical whether the library is empty or full.
+        Only the cost changes: a rule that reuses a known concept is cheaper to
+        describe, so among hypotheses that fit the data equally well the
+        reusing one is preferred. That is the whole mechanism, isolated.
+        """
+        raw = np.log(2.0 * self.features)
+        best = len(literals) * raw
+        total = sum(self.library.values())
+        if total == 0:
+            return float(best)
+        # How often a piece has been used has to enter the cost, and the
+        # version before this one left it out: membership alone made a
+        # coincidental pair seen once as cheap as a concept seen nine times,
+        # so every hypothesis got the same discount and the library did
+        # nothing. Under a description-length prior a piece costs -log of its
+        # frequency, so a genuinely recurring concept is dramatically cheaper
+        # than a coincidence and the preference becomes sharp.
+        for size in range(2, len(literals) + 1):
+            for part in combinations(literals, size):
+                key = tuple(sorted(part))
+                count = self.library.get(key)
+                if count:
+                    alt = -np.log(count / total) + (len(literals) - size) * raw
+                    best = min(best, alt)
+        return float(best)
+
+    def teach(self, name: str, examples: list[Sample]) -> None:
+        x = np.asarray([e.inputs for e in examples], dtype=float)
+        y = np.asarray([e.target for e in examples], dtype=int)
+
+        candidates = self._from_scratch()
+        self.searched[name] = len(candidates)
+        best, best_key = None, None
+        for literals in candidates:
+            # Fit first, then the cheapest description among equal fits.
+            key = (self._score(literals, x, y), -self._cost(literals))
+            if best_key is None or key > best_key:
+                best, best_key = literals, key
+        if best is None:
+            return
+        self.learned[name] = Rule(best)
+        # Every proper sub-expression of a rule that worked is a candidate
+        # piece for the next one.
+        for size in range(2, len(best)):
+            for part in combinations(best, size):
+                key = tuple(sorted(part))
+                self.library[key] = self.library.get(key, 0) + 1
+
+    def accuracy(self, name: str, cases: list[Sample]) -> float:
+        rule = self.learned.get(name)
+        if rule is None:
+            return 0.5
+        x = np.asarray([c.inputs for c in cases], dtype=float)
+        y = np.asarray([c.target for c in cases], dtype=int)
+        return float((rule.holds(x).astype(int) == y).mean())
