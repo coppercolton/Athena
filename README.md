@@ -990,6 +990,60 @@ untested.
 python3 examples/replay_priority.py --data <dir with MNIST idx.gz files>
 ```
 
+## Round two: what to store, once you cannot choose better slots
+
+The failed hypothesis above ruled out an axis. If every rule for choosing
+*which* examples to keep loses to uniform sampling, the remaining lever is what
+each retained slot carries.
+
+A hard label is a weak constraint. "This image is a 7" is satisfied by
+enormous numbers of different functions, so rehearsing it pins down very little
+about the network that produced it. The logits computed when the example was
+current are far tighter: they encode the whole similarity structure the network
+had learned, so rehearsing them asks it to still *compute what it used to
+compute* rather than merely still get the answer right. That is the difference
+between rehearsing an answer and rehearsing a function, and it is why
+[Dark Experience Replay](https://proceedings.neurips.cc/paper/2020/file/b704ea2c39778f07c617f6b7ce480e9e-Paper.pdf)
+stores logits. It should matter most where coverage is scarcest.
+
+Three predictions, registered before the run: the ordering `der++ > logits >
+hard`; a **larger** gap at small buffers (the discriminating one — if the
+ordering holds but the gap does not widen as the buffer shrinks, the
+information-per-slot account is wrong even though the ranking came out right);
+and old-task retention improving more than average accuracy.
+
+Buffer contents, sampling, capacity, optimiser, seeds and data identical
+throughout. Only the rehearsal loss differs.
+
+| buffer | mode | avg acc | oldest 5 | first task |
+|---|---|---:|---:|---:|
+| 200 | hard | 0.749 | 0.652 | 0.673 |
+| 200 | logits | 0.818 | 0.745 | 0.719 |
+| 200 | **der++** | **0.829** | **0.764** | **0.765** |
+| 1000 | hard | 0.844 | 0.802 | 0.788 |
+| 1000 | logits | 0.874 | 0.852 | 0.821 |
+| 1000 | **der++** | **0.885** | **0.866** | **0.860** |
+
+All three hold. The ordering is `der++ > logits > hard` at both sizes. The gain
+is **+0.080 at buffer 200 and +0.041 at buffer 1000** — it doubles as coverage
+gets scarcer, which is the prediction that could have failed independently of
+the ranking and did not. And retention gains outrun average gains: +0.113 on
+the oldest five against +0.080 overall.
+
+For scale, the whole protected-expert apparatus — consolidation, rollback,
+checkpointing, gating — was worth **+0.001** on this benchmark. Changing what
+a slot stores is worth **+0.080** at the same buffer size, and closes 57% of
+the remaining distance to the joint-training upper bound of 0.916.
+
+The weight on the logit term is a scale correction rather than a free
+parameter: the logit-MSE gradient is unbounded where the cross-entropy gradient
+is not. At 1.0 the rehearsal term swamps new learning and most of the advantage
+disappears. It was tuned on a separate probe before the reported run.
+
+```
+python3 examples/what_to_store.py --data <dir with MNIST idx.gz files>
+```
+
 ## Scientific position
 
 Predictive processing is an influential computational theory, not a settled
