@@ -927,6 +927,69 @@ and are being re-verified.
 python3 examples/permuted_mnist.py --data <dir with the four MNIST idx.gz files>
 ```
 
+## A hypothesis about replay, and how it failed
+
+Replay does all the work in this learner, so the question worth asking is what
+the buffer should keep. [SuRe](https://arxiv.org/abs/2511.22367) ranks by
+surprise (highest loss). The [RHO-LOSS](https://arxiv.org/html/2107.02565) line
+shows raw high-loss selection breaks under label noise, because the
+highest-loss examples become the mislabelled ones, and fixes it by subtracting
+an irreducible loss estimated from a *separate holdout model* — which a
+deployed continual learner cannot train. The hypothesis was that precision
+gives you that estimate online for free: loss in excess of expected loss is
+reducible loss, no holdout model required.
+
+Four retention policies, identical in every respect except what earns a place
+in the buffer. Sampling *from* the buffer stays uniform throughout, so the only
+variable is retention. Permuted-MNIST, single-head, 10 tasks, buffer 1000, 2
+seeds:
+
+| noise | policy | avg acc | first task | buffer mislabelled |
+|---|---|---:|---:|---:|
+| 0% | uniform | **0.845** | 0.804 | 0.0% |
+| 0% | surprise | 0.731 | 0.171 | 0.0% |
+| 0% | reducible | 0.550 | 0.123 | 0.0% |
+| 0% | uncertain | 0.746 | **0.896** | 0.0% |
+| 10% | uniform | **0.805** | 0.769 | 11.4% |
+| 10% | surprise | 0.340 | 0.042 | **64.2%** |
+| 10% | reducible | 0.515 | 0.096 | 9.5% |
+| 10% | uncertain | 0.725 | **0.853** | 10.2% |
+| 30% | uniform | **0.659** | 0.610 | 31.6% |
+| 30% | surprise | 0.286 | 0.036 | 63.3% |
+| 30% | reducible | 0.463 | 0.096 | 30.6% |
+| 30% | uncertain | 0.624 | **0.700** | 32.7% |
+
+**The predicted mechanism is real and large.** A surprise-ranked buffer at 10%
+label noise ends up 64.2% mislabelled — a 6x enrichment — and costs 47 points
+of accuracy. Both proposed fixes do exactly the job claimed for them: the
+online expected-loss head pulls contamination back to 9.5%, *below* the base
+rate, with no holdout model. That part of the hypothesis holds.
+
+**The conclusion drawn from it does not.** Every prioritised policy loses to
+uniform reservoir sampling at every noise level, including zero noise, where
+there is nothing to be robust to. Cleaning the buffer was not enough because
+contamination was never the binding constraint.
+
+Look at the first-task column. Greedy retention of any kind concentrates the
+buffer on whatever is hardest *now*, and what is hardest now is always the
+current task, so earlier tasks are evicted outright — first-task accuracy falls
+to 0.04–0.17 against uniform's 0.61–0.80. **The scarce resource in a replay
+buffer is coverage, not informativeness.** Uniform reservoir sampling is not a
+naive default that better selection improves on; it is a direct optimisation of
+the quantity that actually matters, and prioritisation trades that away for
+something worth less.
+
+One result points somewhere. Entropy-based retention beats uniform on
+first-task retention at every noise level (+0.09 on average) while losing on
+the overall average — it protects old tasks and under-serves recent ones. That
+suggests the useful form of prioritisation is *within* strata that already
+guarantee coverage, not instead of them. Which is a new hypothesis, and
+untested.
+
+```
+python3 examples/replay_priority.py --data <dir with MNIST idx.gz files>
+```
+
 ## Scientific position
 
 Predictive processing is an influential computational theory, not a settled
