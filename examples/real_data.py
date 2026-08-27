@@ -43,7 +43,7 @@ import numpy as np
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from athena.joints import COVERAGE, EXCLUSION, _greedy_slots, cooccurrence, discover_slots
+from athena.joints import ALPHA, EXCLUSION, cooccurrence, discover_slots, log_tail
 
 BASE = "https://archive.ics.uci.edu/ml/machine-learning-databases"
 CACHE = os.environ.get("ATHENA_DATA", os.path.join(os.path.dirname(__file__), "..", "data"))
@@ -142,8 +142,30 @@ def by_item_floor(episodes: list[list[str]], floor: float = 0.05) -> list[list[s
     if common.sum() < 2:
         common = np.ones(len(items), dtype=bool)
     keep = np.flatnonzero(common)
-    groups = _greedy_slots(counts[np.ix_(keep, keep)], occurrences[keep], total)
-    return [sorted(items[keep[i]] for i in group) for group in groups]
+    counts = counts[np.ix_(keep, keep)]
+    occurrences = occurrences[keep]
+    names = [items[i] for i in keep]
+
+    expected = np.outer(occurrences, occurrences) / max(total, 1)
+    exclusive = counts < EXCLUSION * expected
+    np.fill_diagonal(exclusive, True)
+    order = list(np.argsort(-occurrences))
+    unassigned, slots = set(order), []
+    while unassigned:
+        seed = next(i for i in order if i in unassigned)
+        group, mass = [seed], occurrences[seed]
+        for candidate in order:
+            if candidate in group or candidate not in unassigned:
+                continue
+            if not all(exclusive[candidate, m] for m in group):
+                continue
+            if mass + occurrences[candidate] > total * 1.35:
+                continue
+            group.append(candidate)
+            mass += occurrences[candidate]
+        unassigned -= set(group)
+        slots.append(group)
+    return [sorted(names[i] for i in g) for g in slots]
 
 
 def grouping_purity(groups: list[list[str]]) -> float:
@@ -158,50 +180,44 @@ def grouping_purity(groups: list[list[str]]) -> float:
     return correct / max(total, 1)
 
 
-def optional(rng, count: int, present: float) -> list[list[str]]:
-    """Situations where a role may simply be absent, as in a scene graph.
+def mixed(rng, count: int, present: float) -> list[list[str]]:
+    """Two roles in every situation; two more only sometimes.
 
-    A table guarantees one value per attribute in every row -- which is exactly
-    the assumption this method needs, and exactly what a parsed scene does not
-    give you. Not every object has a stated colour.
+    A table guarantees one value per attribute in every row -- exactly the
+    assumption this method needs, and exactly what a parsed scene does not
+    give you. Every object has a category; few have a stated material. The
+    *mixed* case is the one that matters, and the one a uniform test hides:
+    when every role is equally rare a coverage rule rejects all of them and
+    falls back to keeping everything, which looks like success.
     """
     out = []
     for _ in range(count):
-        bag = [
-            SLOTS[s][int(rng.integers(0, len(SLOTS[s])))]
-            for s in range(4)
-            if rng.random() < present
-        ]
-        out.append(bag or [SLOTS[0][0]])
+        picks = [int(rng.integers(0, len(SLOTS[s]))) for s in range(3)]
+        picks.append(picks[2] % len(SLOTS[3]))
+        roles = [0, 1] + ([2, 3] if rng.random() < present else [])
+        out.append([SLOTS[s][picks[s]] for s in roles])
     return out
 
 
 def optional_section() -> None:
-    from athena import joints
-
-    print("\n\nWhen a role is optional, as it is in a parsed scene.")
-    print("The UCI tables above always fill every attribute; scenes do not.\n")
+    print("\n\nWhen only some roles are present, as in a parsed scene.")
+    print("Roles 0 and 1 fill every situation; roles 2 and 3 appear at the given rate.\n")
     truth = {frozenset(s) for s in SLOTS}
-    thresholds = (0.5, 0.2)
-    print(f"  {'role present in':>16}" + "".join(f"{f'coverage {t:g}':>15}" for t in thresholds))
-    original = joints.COVERAGE
-    try:
-        for p in (0.8, 0.6, 0.5, 0.4, 0.3, 0.2):
-            row = ""
-            for t in thresholds:
-                joints.COVERAGE = t
-                exact = [
-                    len({frozenset(g) for g in discover_slots(optional(np.random.default_rng(s), 1500, p))} & truth)
-                    for s in range(6)
-                ]
-                row += f"{f'{np.mean(exact):.1f}/4':>15}"
-            print(f"  {p:>15.0%}{row}")
-    finally:
-        joints.COVERAGE = original
-    print("\n  Lowering the threshold buys one notch, to roles present in 40% of")
-    print("  situations. Below about 30% nothing recovers it: a role that fills a")
-    print("  third of the situations has stopped partitioning them, so a criterion")
-    print("  built on partitioning can no longer see it. That is the boundary.")
+    counts = (1500, 3000, 6000, 12000)
+    print(f"  {'rare roles':>11}" + "".join(f"{n:>9}" for n in counts))
+    for present in (0.6, 0.4, 0.3, 0.2, 0.1):
+        row = ""
+        for n in counts:
+            exact = [
+                len({frozenset(g) for g in discover_slots(mixed(np.random.default_rng(s), n, present))} & truth)
+                for s in range(5)
+            ]
+            row += f"{np.mean(exact):>9.1f}"
+        print(f"  {present:>10.0%}{row}")
+    print("\n  Roles recovered exactly, out of 4. What matters is the direction along")
+    print("  a row: a rare role is recoverable, it just needs the situations that")
+    print("  contain it. An absolute coverage rule made this a wall instead --")
+    print("  2/4 at 40% presence, and still 2/4 at twelve thousand situations.")
 
 
 def main() -> None:
@@ -220,18 +236,18 @@ def main() -> None:
 
     print("\nWhat rejects an extractor's debris, and what it costs.")
     print(f"Four true roles. Exclusion below {EXCLUSION:g} of independence;")
-    print(f"a group is kept if its members account for {COVERAGE:g} of the situations.\n")
-    print(f"  {'error rate':>11}  {'coverage: roles':>16}{'purity':>8}   {'item floor: roles':>18}{'purity':>8}")
+    print(f"a group is kept if some pair in it excludes at p < {ALPHA:g}.\n")
+    print(f"  {'error rate':>11}  {'provable: roles':>16}{'purity':>8}   {'item floor: roles':>18}{'purity':>8}")
     for rate in (0.0, 0.02, 0.05, 0.10, 0.20, 0.35):
-        results = {"coverage": [[], []], "floor": [[], []]}
+        results = {"provable": [[], []], "floor": [[], []]}
         for seed in range(8):
             rng = np.random.default_rng(seed)
             episodes = corrupt(rng, 800, rate)
-            for key, fn in (("coverage", discover_slots), ("floor", by_item_floor)):
+            for key, fn in (("provable", discover_slots), ("floor", by_item_floor)):
                 groups = fn(episodes)
                 results[key][0].append(len(groups))
                 results[key][1].append(grouping_purity(groups))
-        a, b = results["coverage"], results["floor"]
+        a, b = results["provable"], results["floor"]
         print(
             f"  {rate:>11.2f}  {np.mean(a[0]):>16.2f}{np.mean(a[1]):>8.3f}"
             f"   {np.mean(b[0]):>18.2f}{np.mean(b[1]):>8.3f}"
@@ -239,7 +255,7 @@ def main() -> None:
 
     print("\nBoth criteria reject debris. Only one keeps rare genuine values:")
     episodes, truth = load("mushroom")
-    for label, groups in (("coverage", discover_slots(episodes)), ("item floor", by_item_floor(episodes))):
+    for label, groups in (("provable", discover_slots(episodes)), ("item floor", by_item_floor(episodes))):
         purity, exact, attributes = score(groups, truth)
         print(f"  mushroom, {label:<11} purity {purity:.3f}   exact {exact}/{attributes}")
 

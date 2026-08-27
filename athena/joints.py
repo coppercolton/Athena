@@ -84,37 +84,31 @@ def cooccurrence(episodes: list[list[str]]) -> tuple[np.ndarray, list[str]]:
 
 
 EXCLUSION = 0.25
-"""How far below independence two items must co-occur to count as exclusive."""
+"""How far below independence two items must co-occur to be treated as exclusive."""
 
-COVERAGE = 0.5
-"""Fraction of situations a group must account for to be a role rather than debris."""
+ALPHA = 0.01
+"""Significance required to call an exclusion *proved*, before correction."""
+
+ALWAYS = 0.9
+"""Share of situations a group must fill to count as a role without proving one."""
 
 
-def _greedy_slots(counts, occurrences, total):
-    """Group indices into mutually exclusive sets that each fill the episodes once."""
-    expected = np.outer(occurrences, occurrences) / max(total, 1)
-    exclusive = counts < EXCLUSION * expected
-    np.fill_diagonal(exclusive, True)
+def log_tail(observed: np.ndarray, expected: np.ndarray) -> np.ndarray:
+    """Bound on log P(X as extreme as ``observed``) for X ~ Poisson(``expected``).
 
-    order = list(np.argsort(-occurrences))
-    unassigned = set(order)
-    slots: list[list[int]] = []
-    while unassigned:
-        seed = next(i for i in order if i in unassigned)
-        group = [seed]
-        mass = occurrences[seed]
-        for candidate in order:
-            if candidate in group or candidate not in unassigned:
-                continue
-            if not all(exclusive[candidate, member] for member in group):
-                continue
-            if mass + occurrences[candidate] > total * 1.35:
-                continue  # would over-fill the slot: these are not alternatives
-            group.append(candidate)
-            mass += occurrences[candidate]
-        unassigned -= set(group)
-        slots.append(group)
-    return slots
+    The Chernoff form, which is conservative and needs no special functions,
+    and which stays finite in log space where the probabilities underflow. The
+    same expression bounds both tails, so one call decides whether a pair
+    co-occurs provably *less* than chance predicts or provably more.
+    """
+    out = np.zeros(observed.shape)
+    usable = expected > 0
+    none = usable & (observed == 0)
+    out[none] = -expected[none]
+    some = usable & (observed > 0) & (observed != expected)
+    k, mu = observed[some], expected[some]
+    out[some] = -mu + k * (1.0 + np.log(mu) - np.log(k))
+    return out
 
 
 def discover_slots(episodes: list[list[str]]) -> list[list[str]]:
@@ -136,32 +130,70 @@ def discover_slots(episodes: list[list[str]]) -> list[list[str]]:
     Counting is what separates them, because a fused pair over-counts: its
     members sum to twice the episodes, not once.
 
-    Exclusion has to be measured statistically rather than exactly. Testing
+    Exclusion has to be measured as a rate rather than an exact zero. Testing
     ``counts == 0`` assumes a perfect observer: one hallucinated co-occurrence
     in eight hundred situations permanently severs two items that belong
     together, and at a 2% extraction error rate the four true roles shatter
-    into eight. What survives noise is the *rate* -- two alternatives for the
-    same slot co-occur far less often than independence predicts, whether or
-    not they ever manage it once.
+    into eight.
 
-    The debris a real extractor invents is then rejected by the same counting
-    rule that defines a role, applied at the end: strays are mutually exclusive
-    with each other, so they collect into their own group, and that group
-    accounts for a few percent of the situations instead of all of them. An
-    earlier version discarded rare *items* up front instead, which is not the
-    same test and costs real structure -- 46 of the 117 mushroom attribute
-    values fall under a 5% threshold, and holding them back left every role
-    pure but truncated, with only 5 of 22 attributes recovered whole. A rare
-    alternative is not debris. A group that explains nothing is.
+    **Two different tests, because grouping and debris-rejection want opposite
+    things.** Grouping needs near-perfect *recall* on sibling pairs: joining a
+    group requires agreement with every member, so one missed true edge
+    fragments a role and the false edges then decide everything. The loose rate
+    test has that recall by construction. Rejecting an extractor's invented
+    items needs *precision*, and that is what significance is for -- a stray is
+    independent of everything, so it never achieves a provable exclusion, while
+    a genuine alternative always has one with some common sibling.
+
+    Crucially the significance test is applied to *groups*, not items. Debris
+    does not merely fail individually: strays exclude each other only by
+    chance, so under the loose test they collect into one group, and that whole
+    group contains no pair whose exclusion can be demonstrated. Discarding rare
+    *items* up front instead is the frequency floor again in better clothes,
+    and it costs every thin genuine value -- 46 of mushroom's 117. Nothing is
+    discarded on its own account here, so no rare value pays for being rare. A
+    group earns its place by containing one provable exclusion, or by filling
+    essentially every situation, which is how a constant attribute like
+    mushroom's veil type survives while debris does not.
 
     No labels, no slot count, no supervision.
     """
     counts, items = cooccurrence(episodes)
     total = len(episodes)
     occurrences = np.diag(counts).copy()
+    expected = np.outer(occurrences, occurrences) / max(total, 1)
 
-    slots = _greedy_slots(counts, occurrences, total)
-    kept = [g for g in slots if occurrences[g].sum() >= COVERAGE * total]
+    exclusive = counts < EXCLUSION * expected
+    np.fill_diagonal(exclusive, True)
+
+    threshold = np.log(ALPHA) - 2.0 * np.log(max(len(items), 2))  # over every pair tested
+    provable = (counts < expected) & (log_tail(counts, expected) < threshold)
+    np.fill_diagonal(provable, False)
+
+    order = list(np.argsort(-occurrences))
+    unassigned = set(order)
+    slots: list[list[int]] = []
+    while unassigned:
+        seed = next(i for i in order if i in unassigned)
+        group = [seed]
+        mass = occurrences[seed]
+        for candidate in order:
+            if candidate in group or candidate not in unassigned:
+                continue
+            if not all(exclusive[candidate, member] for member in group):
+                continue
+            if mass + occurrences[candidate] > total * 1.35:
+                continue  # would over-fill the slot: these are not alternatives
+            group.append(candidate)
+            mass += occurrences[candidate]
+        unassigned -= set(group)
+        slots.append(group)
+
+    kept = [
+        group for group in slots
+        if provable[np.ix_(group, group)].any()
+        or occurrences[group].sum() >= ALWAYS * total
+    ]
     return [sorted(items[i] for i in group) for group in (kept or slots)]
 
 

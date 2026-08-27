@@ -1722,30 +1722,24 @@ had to be handed. That composition is the claim; the miner underneath it has a
 twenty-year pedigree, and using a mature one instead is now an obvious upgrade
 rather than a research question.
 
-### The boundary, measured
+### The boundary, measured — and later found to be an artefact
 
-The UCI tables always fill every attribute — which is exactly the assumption
-this method needs, and exactly what a parsed scene does not give you. Not every
-object has a stated colour. So the same test again with **optional** roles:
+The UCI tables always fill every attribute, which is exactly the assumption
+this method needs and exactly what a parsed scene does not give you. Not every
+object has a stated colour. Measured with optional roles, this round reported a
+hard floor: recovery collapsed below about 30% presence and no threshold fixed
+it.
 
-| role present in | at coverage 0.5 | at coverage 0.2 |
-|---:|---:|---:|
-| 80% | **4/4** | **4/4** |
-| 60% | **4/4** | **4/4** |
-| 50% | 3.3/4 | **4/4** |
-| 40% | 1.0/4 | **4/4** |
-| 30% | 1.0/4 | 2.0/4 |
-| 20% | 0.0/4 | 1.3/4 |
+**That floor was mostly an artefact of the generator.** It force-filled any
+situation that came out empty with a fixed item, which at low presence rates
+inflated one filler enormously and wrecked its role. And the *uniform* version
+of the test — every role equally rare — hides the real failure, because when
+every group fails a coverage rule the code falls back to keeping all of them,
+which reads as success.
 
-The threshold is a knob worth about one notch — down to roles present in **40%
-of situations**, free, with debris rejection and the UCI scores unchanged.
-**Below about 30% nothing recovers it, and that part is not a knob:** a role
-filling a third of the situations has stopped partitioning them, so a criterion
-built on partitioning cannot see it.
-
-For a parsed scene that boundary is livable but real. *Does this object have a
-stated colour* is 70–90% — fine. A long-tail relation appearing in 5% of scenes
-is out of reach, permanently, by this method.
+Round fifteen redoes it on the case that matters, where some roles are common
+and some are rare, and replaces the criterion that caused the genuine part of
+the failure. The corrected numbers are there.
 
 ```
 python3 examples/real_data.py
@@ -1941,6 +1935,97 @@ python3 examples/does_it_scale.py
 ```
 
 
+## Round fifteen: the wall was a weak test
+
+Round fourteen ended with two limits that more data would not fix: optional
+roles, and correlated attributes. The first turned out not to be a property of
+the problem at all.
+
+### What was actually wrong
+
+Debris was rejected by **absolute coverage** — a group had to account for half
+the situations to count as a role. That is a statement about how *often* a role
+appears, so a role appearing in 40% of scenes is indistinguishable from an
+extractor's garbage by construction, at any data volume.
+
+Why was such a blunt rule there? Because the exclusion test underneath it has
+**no statistical power at low counts**. Two rare strays with an expected
+overlap of 1.07 that never actually collide pass `counts < 0.25 × expected` —
+but that happens by chance one time in three. Debris was merging by luck, and
+coverage was the mop.
+
+### One test cannot do both jobs
+
+The fix is not a better single test. Grouping and debris-rejection want
+opposite things:
+
+*   **Grouping needs recall.** Joining a group requires agreement with every
+    member, so one missed true edge fragments a role and the false edges decide
+    everything. On mushroom the loose rate test finds 716/716 true sibling
+    pairs; a significance test finds 384/716, because two *rare* siblings can
+    never prove anything about each other — chance already predicts they will
+    not collide.
+*   **Debris-rejection needs precision.** A stray is independent of everything,
+    so it never achieves a provable exclusion. A genuine alternative always has
+    one, with some *common* sibling.
+
+And the significance test belongs on **groups, not items**. Debris fails
+collectively: strays collect into one group under the loose test, and that
+whole group contains no pair whose exclusion can be demonstrated. Filtering
+rare *items* instead is the frequency floor again in better clothes.
+
+A group is a role if some pair in it provably excludes at p < 0.01 (Bonferroni
+over every pair tested, via a Chernoff bound on the Poisson tail — no special
+functions, and it stays finite in log space). Or if it fills essentially every
+situation, which is how mushroom's constant veil type survives and debris does
+not.
+
+### The result
+
+Roles 0 and 1 in every situation, roles 2 and 3 at the rate shown. Roles
+recovered exactly, out of 4:
+
+| rare roles present in | 1500 | 3000 | 6000 | 12000 |
+|---:|---:|---:|---:|---:|
+| **coverage rule** 60% | 4.0 | 4.0 | 4.0 | 4.0 |
+| 40% | 2.0 | 2.0 | 2.0 | **2.0** |
+| 20% | 2.0 | 2.0 | 2.0 | **2.0** |
+| **provable rule** 60% | 4.0 | 4.0 | 4.0 | 4.0 |
+| 40% | **4.0** | 4.0 | 4.0 | 4.0 |
+| 30% | 3.4 | **4.0** | 4.0 | 4.0 |
+| 20% | 3.0 | 3.0 | **4.0** | 4.0 |
+| 10% | 2.0 | 2.0 | 3.0 | 3.0 |
+
+**The old rule is flat along every row — 2/4 at 40% presence and still 2/4 at
+twelve thousand situations. The new one climbs.** A structural wall became a
+data question, which is the only kind of limit worth having, and it joins the
+`fillers²` law from round fourteen: what a rare role costs is the situations
+that contain it.
+
+Everything else is unchanged, which is the point — this was meant to remove a
+limit, not trade one:
+
+| | before | after |
+|---|---|---|
+| mushroom | 15/22, purity 0.915 | **15/22, purity 0.915** |
+| car | 6/6 | **6/6** |
+| nursery | 8/8 | **8/8** |
+| debris admitted as roles, 0–35% noise | 0 | **0** |
+| roles found under noise | 4.00 | **4.00** |
+
+### What is still real
+
+**Correlated attributes.** Mushroom's remaining 7 are the two stalk colours,
+which almost always agree, and values deterministically nested inside
+ring-type. Two attributes that share an alphabet and covary are not two slots
+as far as exclusion can tell, and no amount of data changes that. This one is
+genuine, and it is the next thing to attack.
+
+```
+python3 examples/real_data.py
+```
+
+
 ## Scientific position
 
 Predictive processing is an influential computational theory, not a settled
@@ -2000,14 +2085,14 @@ not bundle or train a foundation model.
 
 ## Validation and layout
 
-The regression suite passes **62 / 62** behavioural tests.
+The regression suite passes **66 / 66** behavioural tests.
 
 ```bash
 python3 tests/test_athena.py      # 16 numeric world-model tests
 python3 tests/test_continual.py   # 13 replay, consolidation, interference tests
 python3 tests/test_plasticity.py  #  8 shared-plasticity and retention tests
 python3 tests/test_transfer.py    #  8 progressive-registry transfer tests
-python3 tests/test_joints.py      # 10 role-discovery and scaling tests
+python3 tests/test_joints.py      # 14 role-discovery, scaling and debris tests
 python3 tests/test_library.py     #  7 hypothesis-space and reuse tests
 ```
 

@@ -20,7 +20,7 @@ import numpy as np
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import athena.joints as joints
-from athena.joints import align, cooccurrence, discover_slots, slot_signature
+from athena.joints import align, cooccurrence, discover_slots, log_tail, slot_signature
 
 SLOTS = [
     ["water", "oil", "steam", "slurry"],
@@ -182,6 +182,57 @@ def test_wide_roles_need_more_situations_not_a_different_method():
 
     assert run(200) < 6
     assert run(4000) == 6
+
+
+def test_a_rare_role_is_recoverable_where_a_common_one_is_present():
+    """The realistic scene case: some roles in every situation, some seldom.
+
+    An absolute coverage rule makes this a wall -- the rare roles are dropped
+    as debris no matter how much data arrives. Judging a group by whether it
+    contains a *provable* exclusion makes it a data question instead.
+    """
+    def mixed(rng, count, present):
+        out = []
+        for _ in range(count):
+            picks = [int(rng.integers(0, len(SLOTS[s]))) for s in range(3)]
+            picks.append(picks[2] % len(SLOTS[3]))
+            roles = [0, 1] + ([2, 3] if rng.random() < present else [])
+            out.append([SLOTS[s][picks[s]] for s in roles])
+        return out
+
+    for seed in range(3):
+        found = discover_slots(mixed(np.random.default_rng(seed), 4000, 0.4))
+        assert as_sets(found) == TRUE, found
+
+
+def test_debris_is_rejected_as_a_group_not_as_rare_items():
+    """Strays collect into one group under a loose test, and that group
+    contains no pair whose exclusion can be demonstrated."""
+    rng = np.random.default_rng(11)
+    data = episodes(rng, 2000, rate=0.30)
+    found = discover_slots(data)
+    assert as_sets(found) == TRUE, found
+    assert not any(i.startswith("stray") for g in found for i in g), found
+
+
+def test_an_always_present_constant_survives():
+    """A one-value attribute has no pair, so it can never prove an exclusion.
+    It is still a role, and what separates it from debris is that it fills
+    every situation."""
+    rng = np.random.default_rng(12)
+    data = [bag + ["veil"] for bag in episodes(rng, 1500)]
+    found = discover_slots(data)
+    assert ["veil"] in found, found
+
+
+def test_log_tail_bounds_both_directions():
+    counts = np.array([[0.0, 40.0], [200.0, 10.0]])
+    expected = np.array([[5.0, 100.0], [100.0, 10.0]])
+    got = log_tail(counts, expected)
+    assert got[0, 0] == -5.0                 # never seen, expected five times
+    assert got[0, 1] < -10.0                 # far below chance
+    assert got[1, 0] < -10.0                 # far above chance
+    assert got[1, 1] == 0.0                  # exactly as expected: no evidence
 
 
 if __name__ == "__main__":
