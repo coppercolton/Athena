@@ -1114,6 +1114,55 @@ run the ablation on a single benchmark with everything else held fixed.
 python3 examples/how_little.py --data <dir with MNIST idx.gz files>
 ```
 
+## Round four: how many timescales?
+
+The convergent principle says: keep a slower copy and be pulled toward it. One
+anchor is DER++, two is SuRe's fast/slow pair, a continuum is Nested Learning.
+The principle is asserted widely and isolated nowhere, because each paper
+proposes an architecture and the number of timescales varies alongside
+everything else.
+
+Here everything else is fixed. The control that makes it a test of *timescales*
+rather than of *strength*: total anchoring weight is constant and split equally
+among active anchors, so three anchors pull no harder in total than one.
+
+| anchors | avg acc | oldest 5 | first task |
+|---|---:|---:|---:|
+| none (hard labels) | 0.749 | 0.652 | 0.673 |
+| 1: snapshot | **0.829** | **0.764** | **0.765** |
+| 1: slow EMA (0.999) | 0.809 | 0.738 | 0.725 |
+| 1: fast EMA (0.99) | 0.808 | 0.732 | 0.724 |
+| 2: snapshot + slow | 0.827 | 0.763 | 0.750 |
+| 3: snapshot + slow + fast | 0.828 | 0.763 | 0.753 |
+
+Against the best single anchor: two anchors **−0.002**, three **−0.001**.
+
+**Having an anchor is worth +0.080. Having more than one is worth nothing.**
+The EMA decay rate barely matters either — slow and fast land 0.001 apart, so a
+hundredfold change in the lag is invisible. Whatever the continuum framing is
+buying, at this scale it is not bought by the number of timescales.
+
+The one distinction that *does* matter is a different axis. The snapshot beats
+both EMAs by about 0.02, and the two differ in kind rather than in lag: a
+snapshot is recorded **per example** -- what the network said about that
+specific input when it was current -- while an EMA is a single global lag
+applied to everything. So the useful property is not *how old* the anchor is
+but *whether it is indexed to the data point*. That is consistent with round
+three, where rehearsal turned out to need real inputs: both results say the
+anchor must be tied to specific places in input space rather than to the
+network as a whole.
+
+Scope, stated carefully. This tests the distillation-anchor instantiation of
+multi-timescale learning -- extra targets at extra lags -- on one benchmark with
+a small MLP and two seeds. It does not test architecture-level nested
+optimisation, where the timescales are update rules for different parameter
+groups rather than additional targets. A −0.002 difference is inside the noise
+here; what is outside the noise is that nothing was gained.
+
+```
+python3 examples/how_many_timescales.py --data <dir with MNIST idx.gz files>
+```
+
 ## Scientific position
 
 Predictive processing is an influential computational theory, not a settled
