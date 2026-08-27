@@ -74,8 +74,18 @@ class Space:
 
     @staticmethod
     def bundle(*vectors: np.ndarray) -> np.ndarray:
-        """Superpose things into one vector, keeping similarity to each part."""
-        return np.sign(np.sum(vectors, axis=0) + 1e-12)
+        """Superpose things into one vector, keeping similarity to each part.
+
+        The sum is left real-valued rather than thresholded back to +/-1.
+        Thresholding looks harmless and is not: with an even number of terms
+        the sum is zero in about 37% of dimensions, every one of those ties
+        breaks the same way, and the result is a constant vector added to every
+        structure the system builds. That shared component then dominates any
+        product of two structures, which silently destroys exactly the
+        cancellation that analogical mapping depends on. Cosine similarity
+        ignores magnitude, so nothing is gained by thresholding anyway.
+        """
+        return np.sum(vectors, axis=0)
 
     @staticmethod
     def similarity(a: np.ndarray, b: np.ndarray) -> float:

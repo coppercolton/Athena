@@ -1436,6 +1436,59 @@ like it should be.
 python3 examples/binding_problem.py
 ```
 
+## Round nine: abstract concepts, which is the real test
+
+Binding keeps "red cube" apart from "blue cube", but nothing there is abstract.
+"Pressure" in a pipe and "pressure" in a negotiation share no colour, no shape,
+no sensory feature at all. What they share is the role something plays: a
+quantity accumulating against a constraint until something gives.
+
+So the test that matters is **analogy** — carrying an answer between situations
+with nothing in common on the surface. Bound structures do this by
+multiplication alone. For two situations over the same roles, their product
+cancels the roles and leaves a mapping between their fillers:
+
+```
+plumbing -> negotiation   water->tension  pipe->talks  pressure->friction  valve->concession
+plumbing -> geology       water->magma    pipe->chamber  pressure->strain  valve->eruption
+plumbing -> psychology    water->stress   pipe->person   pressure->anxiety valve->outburst
+```
+
+The roles are never named, looked up, or known. Five domains, every ordered
+pair, twenty seeds:
+
+| condition | accuracy |
+|---|---:|
+| shared roles | **1.000** |
+| each domain its own roles | 0.062 |
+| chance | 0.050 |
+
+**Abstract transfer across domains with zero shared surface features is exact
+— when both are carved up the same way.** Give each domain its own vocabulary
+of roles and it collapses to chance. Nothing about the situations changed. Only
+who chose the joints.
+
+That is the fourth independent route to the same wall. Predictive coding needed
+its hierarchy specified. The library learner was told rules are conjunctions.
+Binding was handed its atoms. Analogy needs the roles pre-aligned. Every
+mechanism in this repository composes flawlessly over a vocabulary somebody
+else wrote down, and none of them can produce that vocabulary from what they
+observe.
+
+**The bug worth recording.** Bundling originally thresholded the superposition
+back to ±1. With an even number of terms the sum is zero in ~37% of dimensions,
+every tie breaks the same way, and the result is a constant vector added to
+every structure the system builds — which then dominates any product of two
+structures and destroys exactly the cancellation analogy depends on. It showed
+up as one domain pair transferring perfectly while another, structurally
+identical, returned its own inputs unchanged. Two cases that must behave alike
+behaving differently is the same signature that exposed the replay bug in round
+two, and it is the most reliable bug detector in this file.
+
+```
+python3 examples/abstract_analogy.py
+```
+
 ## Scientific position
 
 Predictive processing is an influential computational theory, not a settled
