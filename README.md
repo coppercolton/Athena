@@ -1722,6 +1722,31 @@ had to be handed. That composition is the claim; the miner underneath it has a
 twenty-year pedigree, and using a mature one instead is now an obvious upgrade
 rather than a research question.
 
+### The boundary, measured
+
+The UCI tables always fill every attribute — which is exactly the assumption
+this method needs, and exactly what a parsed scene does not give you. Not every
+object has a stated colour. So the same test again with **optional** roles:
+
+| role present in | at coverage 0.5 | at coverage 0.2 |
+|---:|---:|---:|
+| 80% | **4/4** | **4/4** |
+| 60% | **4/4** | **4/4** |
+| 50% | 3.3/4 | **4/4** |
+| 40% | 1.0/4 | **4/4** |
+| 30% | 1.0/4 | 2.0/4 |
+| 20% | 0.0/4 | 1.3/4 |
+
+The threshold is a knob worth about one notch — down to roles present in **40%
+of situations**, free, with debris rejection and the UCI scores unchanged.
+**Below about 30% nothing recovers it, and that part is not a knob:** a role
+filling a third of the situations has stopped partitioning them, so a criterion
+built on partitioning cannot see it.
+
+For a parsed scene that boundary is livable but real. *Does this object have a
+stated colour* is 70–90% — fine. A long-tail relation appearing in 5% of scenes
+is out of reach, permanently, by this method.
+
 ```
 python3 examples/real_data.py
 ```
@@ -1729,6 +1754,107 @@ python3 examples/real_data.py
 [1] [Discovering Succinct Pattern Sets Expressing Co-Occurrence and Mutual Exclusivity](https://consensus.app/papers/details/ec43309ccb835845bcde6fd5b08a86b5/) (Fischer, Kiefer et al., 2020, KDD)
 [2] [The minimum description length principle for pattern mining: a survey](https://consensus.app/papers/details/e3b72f21b30650bbb01d6063b233d78c/) (Galbrun, 2020, Data Mining and Knowledge Discovery)
 [7] [Substructure Discovery Using Minimum Description Length and Background Knowledge](https://consensus.app/papers/details/dd0647224c575b3194a713269c4ff067/) (Cook & Holder, 1993)
+
+
+## Round thirteen: does the structure pay rent?
+
+Rounds eight to twelve all measure the same kind of thing — whether the true
+roles were recovered, whether transfer worked given roles already known to be
+right. Every one of them is *intrinsic*. **Not one shows that discovered
+structure makes any learner better at anything.** That is the load-bearing
+untested claim of this repository, and it is the founding one: that watching
+the world should make later learning cheaper.
+
+Two ways it might. Only one of them is real.
+
+### It does not compress the search
+
+Knowing which features are alternatives for one role means two of them can
+never both hold, so those conjunctions are contradictions and can be struck out.
+A smaller space is harder to fit by luck, so the same learner should need fewer
+examples. Four conditions — identical learner, examples, scoring and tie-break,
+differing only in the candidate set:
+
+| labelled examples | raw | discovered | given | shuffled |
+|---:|---:|---:|---:|---:|
+| hypotheses considered | 4992 | 4461 | 4461 | 4461 |
+| 4 | 0.778 | 0.778 | 0.778 | 0.778 |
+| 8 | 0.857 | 0.857 | 0.857 | 0.857 |
+| 16 | 0.933 | 0.933 | 0.933 | 0.932 |
+| 32 | 0.976 | 0.976 | 0.976 | 0.973 |
+| **to reach 0.90** | **12** | **12** | **12** | **12** |
+
+**Nothing. Identical to three decimals**, and identical for a reason worth more
+than the hypothesis was: a contradiction predicts "always false", which scores
+at chance on balanced data and can never win. The impossible hypotheses were
+eliminating themselves already. Pruning them removed competitors that were
+never competing.
+
+Worth stating plainly because it is the intuitive story and it is wrong:
+**structure is not compression, and a smaller hypothesis space is not
+automatically a better one.**
+
+The first version of this pruned harder — it dropped *any* two literals from
+one role — and a test written afterwards caught it: `not-water and not-oil` is
+satisfiable, and so is `steam and not-water`. Only two **positive** literals
+from one role contradict. The over-pruned space was quietly unable to express
+things the raw space could, which would have made this a comparison between
+two different learners rather than one learner with two candidate sets. The
+null survives the correction; the claim that the constrained space still holds
+every satisfiable conjunction is now enforced by a test rather than asserted.
+
+### It does change what is expressible
+
+Some rules mention no filler at all — they say two roles *agree*. Whether the
+stalk is the same colour above and below the ring is a fact about role identity,
+and the mushroom data has exactly that pair. Same four conditions, same learner:
+
+| labelled examples | raw | discovered | given | shuffled |
+|---:|---:|---:|---:|---:|
+| 4 | 0.503 | **0.983** | **0.987** | 0.504 |
+| 8 | 0.527 | **0.996** | **1.000** | 0.524 |
+| 16 | 0.568 | **1.000** | **1.000** | 0.561 |
+| 32 | 0.610 | **1.000** | **1.000** | 0.605 |
+
+**Discovered roles reach 0.983 from four labelled examples. Without them the
+learner is at chance with thirty-two, and climbing so slowly it would never
+arrive.** Discovered tracks given exactly. And `shuffled` — which is handed the
+same extra predicate, over the wrong groups — stays pinned to raw, so this is
+the *correct* roles doing the work, not the extra expressive power.
+
+The size of what changed:
+
+| | hypotheses |
+|---|---:|
+| single conjunctions, ≤3 literals over 16 features | 4992 |
+| four-term DNF over those — what raw would need to express agreement | **2.6 × 10¹³** |
+| agreement predicates the role-aware learner adds | **2** |
+
+That is the whole finding. Unsupervised watching, which costs no labels, turns
+a search of **2.6 × 10¹³** into a choice between **two** hypotheses — not by
+pruning, but by making a statement sayable that could not previously be
+written down at any length.
+
+### What this settles
+
+The value of a discovered vocabulary is **expressiveness, not efficiency**. It
+buys nothing on hypotheses that name their fillers, and it is the difference
+between chance and perfect on hypotheses that quantify over roles.
+
+That also sharpens what the earlier rounds were really showing. Round eight's
+binding, round nine's analogy and round ten's alignment are all statements
+about role identity — *this filler here plays the part that filler plays
+there* — which is precisely the class this round isolates. They were never
+about compressing anything either.
+
+And it is the concrete, small version of the founding claim. Watching makes
+later learning cheaper — not by accumulating facts, but by acquiring the
+variables that make a whole class of hypotheses expressible. That is the
+mechanism, and it is now measured rather than asserted.
+
+```
+python3 examples/paying_rent.py
+```
 
 
 ## Scientific position
@@ -1790,7 +1916,7 @@ not bundle or train a foundation model.
 
 ## Validation and layout
 
-The regression suite passes **52 / 52** behavioural tests.
+The regression suite passes **59 / 59** behavioural tests.
 
 ```bash
 python3 tests/test_athena.py      # 16 numeric world-model tests
@@ -1798,6 +1924,7 @@ python3 tests/test_continual.py   # 13 replay, consolidation, interference tests
 python3 tests/test_plasticity.py  #  8 shared-plasticity and retention tests
 python3 tests/test_transfer.py    #  8 progressive-registry transfer tests
 python3 tests/test_joints.py      #  7 role-discovery tests
+python3 tests/test_library.py     #  7 hypothesis-space and reuse tests
 ```
 
 The rounds, in the order they were measured:
@@ -1817,6 +1944,7 @@ python3 examples/binding_problem.py        # bags destroy structure
 python3 examples/abstract_analogy.py       # transfer over shared roles
 python3 examples/finding_the_joints.py     # the roles are learnable
 python3 examples/real_data.py              # on data nobody generated for it
+python3 examples/paying_rent.py            # what the structure actually buys
 ```
 
 | path | purpose |

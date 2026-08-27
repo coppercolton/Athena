@@ -43,6 +43,11 @@ from .taught import Rule
 
 Literals = tuple[tuple[int, bool], ...]
 
+# The candidate space depends only on (features, max_literals, groups), and
+# rebuilding it per lesson dominates any run that teaches more than a handful.
+_SPACES: dict[tuple, list[Literals]] = {}
+_COMPILED: dict[tuple, tuple] = {}
+
 
 @dataclass
 class LibraryLearner:
@@ -50,6 +55,7 @@ class LibraryLearner:
 
     features: int
     max_literals: int = 3
+    groups: tuple[tuple[int, ...], ...] | None = None
     library: dict[Literals, int] = field(default_factory=dict)
     learned: dict[str, Rule] = field(default_factory=dict)
     searched: dict[str, int] = field(default_factory=dict)
@@ -72,16 +78,47 @@ class LibraryLearner:
         return out
 
     def _from_scratch(self) -> list[Literals]:
+        key = (self.features, self.max_literals, self.groups)
+        cached = _SPACES.get(key)
+        if cached is None:
+            cached = _SPACES[key] = self._build_space()
+        return cached
+
+    def _build_space(self) -> list[Literals]:
+        """Every conjunction the learner is willing to consider.
+
+        With ``groups`` set, features known to be alternatives for one role are
+        never conjoined. Two values of the same attribute cannot both hold, so
+        those hypotheses are contradictions that no evidence can ever select --
+        but a learner that does not know which features are alternatives cannot
+        tell them from the rest, and has to carry them through the search.
+        Withholding them is not a hint about the answer: the space still
+        contains every satisfiable conjunction, and the truth with it. It is
+        only smaller, and a smaller space is harder to fit by luck.
+        """
+        home = {}
+        for slot, group in enumerate(self.groups or ()):
+            for index in group:
+                home[index] = slot
+
         out: list[Literals] = []
         for size in range(1, self.max_literals + 1):
             for picks in combinations(range(self.features), size):
                 for mask in range(1 << size):
-                    out.append(
-                        tuple(
-                            (int(i), bool(mask >> b & 1))
-                            for b, i in enumerate(picks)
-                        )
+                    literals = tuple(
+                        (int(i), bool(mask >> b & 1)) for b, i in enumerate(picks)
                     )
+                    if self.groups is not None:
+                        # Only two *positive* literals from one role contradict.
+                        # Requiring one value and denying another is satisfiable,
+                        # and so is denying two, so both must survive -- an
+                        # earlier version dropped them and quietly made the
+                        # constrained space unable to express things the raw
+                        # space could, which is a different experiment.
+                        held = [home[i] for i, want in literals if want and i in home]
+                        if len(set(held)) != len(held):
+                            continue
+                    out.append(literals)
         return out
 
     @staticmethod
@@ -128,18 +165,50 @@ class LibraryLearner:
                     best = min(best, alt)
         return float(best)
 
+    def _compiled(self) -> tuple:
+        """The candidate space as arrays, so every hypothesis is scored at once.
+
+        Scoring five thousand conjunctions one at a time in Python dominates
+        any run that teaches more than a handful of rules. The arrays are
+        padded to the longest conjunction and masked, which is exactly the
+        loop it replaces.
+        """
+        key = (self.features, self.max_literals, self.groups)
+        got = _COMPILED.get(key)
+        if got is None:
+            candidates = self._from_scratch()
+            width = max(len(c) for c in candidates)
+            index = np.zeros((len(candidates), width), dtype=int)
+            polarity = np.zeros((len(candidates), width), dtype=bool)
+            used = np.zeros((len(candidates), width), dtype=bool)
+            for row, literals in enumerate(candidates):
+                for column, (i, want) in enumerate(literals):
+                    index[row, column] = i
+                    polarity[row, column] = want
+                    used[row, column] = True
+            got = _COMPILED[key] = (candidates, index, polarity, used)
+        return got
+
     def teach(self, name: str, examples: list[Sample]) -> None:
         x = np.asarray([e.inputs for e in examples], dtype=float)
         y = np.asarray([e.target for e in examples], dtype=int)
 
-        candidates = self._from_scratch()
+        candidates, index, polarity, used = self._compiled()
         self.searched[name] = len(candidates)
-        best, best_key = None, None
-        for literals in candidates:
-            # Fit first, then the cheapest description among equal fits.
-            key = (self._score(literals, x, y), -self._cost(literals))
-            if best_key is None or key > best_key:
-                best, best_key = literals, key
+
+        holds = (((x[:, index] > 0.5) == polarity) | ~used).all(axis=2)
+        fit = (holds == y[:, None].astype(bool)).mean(axis=0)
+
+        # Fit first, then the cheapest description among equal fits. Only the
+        # best-fitting hypotheses can win, so the description length -- which
+        # is the expensive part, and the part the library changes -- is
+        # computed for those alone.
+        top = np.flatnonzero(fit >= fit.max() - 1e-12)
+        best, best_cost = None, None
+        for position in top:
+            cost = self._cost(candidates[position])
+            if best_cost is None or cost < best_cost:
+                best, best_cost = candidates[position], cost
         if best is None:
             return
         self.learned[name] = Rule(best)

@@ -158,6 +158,52 @@ def grouping_purity(groups: list[list[str]]) -> float:
     return correct / max(total, 1)
 
 
+def optional(rng, count: int, present: float) -> list[list[str]]:
+    """Situations where a role may simply be absent, as in a scene graph.
+
+    A table guarantees one value per attribute in every row -- which is exactly
+    the assumption this method needs, and exactly what a parsed scene does not
+    give you. Not every object has a stated colour.
+    """
+    out = []
+    for _ in range(count):
+        bag = [
+            SLOTS[s][int(rng.integers(0, len(SLOTS[s])))]
+            for s in range(4)
+            if rng.random() < present
+        ]
+        out.append(bag or [SLOTS[0][0]])
+    return out
+
+
+def optional_section() -> None:
+    from athena import joints
+
+    print("\n\nWhen a role is optional, as it is in a parsed scene.")
+    print("The UCI tables above always fill every attribute; scenes do not.\n")
+    truth = {frozenset(s) for s in SLOTS}
+    thresholds = (0.5, 0.2)
+    print(f"  {'role present in':>16}" + "".join(f"{f'coverage {t:g}':>15}" for t in thresholds))
+    original = joints.COVERAGE
+    try:
+        for p in (0.8, 0.6, 0.5, 0.4, 0.3, 0.2):
+            row = ""
+            for t in thresholds:
+                joints.COVERAGE = t
+                exact = [
+                    len({frozenset(g) for g in discover_slots(optional(np.random.default_rng(s), 1500, p))} & truth)
+                    for s in range(6)
+                ]
+                row += f"{f'{np.mean(exact):.1f}/4':>15}"
+            print(f"  {p:>15.0%}{row}")
+    finally:
+        joints.COVERAGE = original
+    print("\n  Lowering the threshold buys one notch, to roles present in 40% of")
+    print("  situations. Below about 30% nothing recovers it: a role that fills a")
+    print("  third of the situations has stopped partitioning them, so a criterion")
+    print("  built on partitioning can no longer see it. That is the boundary.")
+
+
 def main() -> None:
     print(__doc__.strip().splitlines()[0])
     print("\nThree UCI categorical datasets, column structure withheld.")
@@ -196,6 +242,8 @@ def main() -> None:
     for label, groups in (("coverage", discover_slots(episodes)), ("item floor", by_item_floor(episodes))):
         purity, exact, attributes = score(groups, truth)
         print(f"  mushroom, {label:<11} purity {purity:.3f}   exact {exact}/{attributes}")
+
+    optional_section()
 
 
 if __name__ == "__main__":
