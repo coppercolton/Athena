@@ -1330,6 +1330,36 @@ the difference is measurable, at 0.03 accuracy and forty junk concepts.
 python3 examples/wake_sleep.py
 ```
 
+## What was removed, and why
+
+This repository once held nine versions of subsystems: protected neural
+experts, an agent layer with episodic memory and evidence-gated beliefs, a
+verified skill registry, permissioned tool learning, a grounded representation
+layer, an AGI-readiness audit, and a browser playground. Roughly forty files
+and ninety tests.
+
+Benchmarked against a baseline, their combined contribution was **+0.001**.
+
+They have been removed. Not because the work was careless — it was unusually
+well tested and unusually honest about its own limits — but because a
+repository that presents unmeasured machinery alongside measured results makes
+the measured results harder to find. Everything deleted survives on the
+``agent/athena-v9-live-apprenticeship`` branch and in this branch's history.
+
+What remains is what has a number behind it:
+
+| module | what it is worth |
+|---|---|
+| `core` | predictive coding; 200x better than persistence, though its classical RLS head does most of that |
+| `continual` | shared trunk plus replay; **+34 points**, and replay is the whole of it |
+| `der` | rehearse the function, not the answer; **+0.080** at fixed buffer |
+| `library` | keep and reuse the pieces; **4–6x** the compounding of a gradient network |
+| `taught` | a world where teaching is possible, because Permuted-MNIST is not one |
+| `transfer`, `priority`, `timescales`, `plasticity` | the ablations and controls, kept because their negative results are easy to rediscover otherwise |
+
+Sixteen modules, four test suites, and every claim in this file reproducible
+from a script in `examples/`.
+
 ## Scientific position
 
 Predictive processing is an influential computational theory, not a settled

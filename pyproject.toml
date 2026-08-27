@@ -17,5 +17,3 @@ athena-apprentice = "athena.apprentice_cli:main"
 [tool.setuptools.packages.find]
 include = ["athena*"]
 
-[tool.setuptools.package-data]
-athena = ["static/*.html", "static/*.css", "static/*.js"]

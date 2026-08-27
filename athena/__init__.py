@@ -1,115 +1,58 @@
-"""Athena -- an AI that learns by predicting what it is about to see."""
+"""Athena — an experiment in whether experience can make learning cheaper.
 
-from .agent import (
-    AgentConfig,
-    AthenaAgent,
-    CallableFoundation,
-    Candidate,
-    Decision,
-    FoundationModel,
-    OutcomeReport,
-    ScoredCandidate,
-    StrategyKnowledge,
-)
-from .apprentice import (
-    ActionObservation,
-    ApprenticeConfig,
-    ApprenticeProcedure,
-    ApprenticeRuntime,
-    ApprenticeStore,
-    AttemptReport,
-    CheckCommand,
-    CheckResult,
-    DeveloperTask,
-    OpenRouterRepositoryReasoner,
-    RepositoryReasoner,
-    RepositorySandbox,
-    RuntimeStatus,
-    ScriptedRepositoryReasoner,
-    VerificationResult,
-)
+Every module here has a measurement behind it in the README. The subsystems
+that did not — nine versions of protected experts, agent scaffolding, skill
+registries, tool learning, and a browser playground — were removed once the
+benchmarks put their combined contribution at +0.001. They remain on the
+``agent/athena-v9-live-apprenticeship`` branch and in this branch's history;
+nothing was lost, it just stopped being presented as though it worked.
+
+What survives, and what each part is worth:
+
+``core``       hierarchical predictive coding: predict, compare, settle, learn.
+               200x better than persistence on stationary streams, though the
+               classical RLS head inside it does most of that work.
+``continual``  a shared trunk that never stops training, with replay,
+               consolidation and rollback. Replay is what matters: +34 points
+               on Permuted-MNIST where consolidation adds +0.001.
+``der``        rehearse the function, not the answer. +0.080 at fixed buffer,
+               the single largest gain measured here.
+``library``    keep the pieces of what you learn and reuse them. Compounds 4-6x
+               better than a gradient network, with sleep-style consolidation
+               (7x compression, free) and imagination that works only when
+               paired with a rejection step.
+``taught``     a world where teaching is possible, because Permuted-MNIST is
+               not one.
+``transfer``   progressive lateral connections: forward transfer with exact
+               retention, superseded by the shared trunk.
+``priority``   replay retention policies. All of them lose to uniform
+               sampling; kept because that result is easy to rediscover.
+``timescales`` one anchor is worth +0.080, a second is worth nothing.
+``plasticity`` per-skill protected experts, kept as the isolation baseline.
+"""
+
 from .baselines import BaselineReport, OnlineRLS
-from .core import Athena, Config, StepReport
-from .foundation import (
-    DemoFoundation,
-    FoundationError,
-    FoundationRefusal,
-    OpenAIResponsesFoundation,
-    OpenAIResponsesToolReasoner,
-    OpenRouterChatFoundation,
-    OpenRouterChatToolReasoner,
-)
-from .memory import Belief, BeliefStore, Episode, EpisodicMemory, HashingEncoder
-from .precision import Precision, VolatilityTracker
+from .context import ContextGate, GateState
 from .continual import (
     ContinualConfig,
     ContinualLearner,
     Experience,
     LearningReport,
+    MultiClassLearner,
+    Sample,
     SharedPlasticity,
+    related_tasks,
+    task_cases,
+    unrelated_tasks,
 )
+from .core import Athena, Config, StepReport
+from .der import DERLearner
+from .library import LibraryLearner
+from .precision import Precision, VolatilityTracker
+from .priority import PrioritisedLearner
+from .taught import EpisodicLearner, GradientLearner, Rule, make_composed_rules, make_rules, rule_examples
+from .timescales import TimescaleLearner
 from .transfer import Example, ProgressiveRegistry, TransferConfig, TransferReport
-from .plasticity import (
-    NeuralExample,
-    PlasticityConfig,
-    PlasticityReport,
-    PlasticSkill,
-    ProtectedPlasticity,
-    make_reasoning_cases,
-)
-from .representations import (
-    GroundedExample,
-    GroundedRepresentationSystem,
-    OperatorReport,
-    RawObservation,
-    ReasoningOperator,
-    RepresentationConfig,
-    RepresentationReport,
-    RepresentationState,
-    make_visual_cases,
-    make_visual_observations,
-)
-from .readiness import (
-    AGIReadinessReport,
-    EvidenceLevel,
-    ReadinessGate,
-    assess_agi_readiness,
-)
-from .skills import (
-    ConsolidationReport,
-    Example,
-    Experiment,
-    KnowledgeGap,
-    LearningReport,
-    NovelTaskLearner,
-    Program,
-    ProgramCatalog,
-    Skill,
-    SkillRegistry,
-    VerificationReport,
-)
-from .tool_learning import (
-    DemoToolReasoner,
-    OpaqueKVWorld,
-    ProcedureStep,
-    SkillValidation,
-    ToolDecision,
-    ToolEnvironment,
-    ToolExperience,
-    ToolGoal,
-    ToolLearningAgent,
-    ToolLearningReport,
-    ToolParameter,
-    ToolPolicy,
-    ToolReasoner,
-    ToolResult,
-    ToolRunReport,
-    ToolSkill,
-    ToolSkillRegistry,
-    ToolSpec,
-    ToolVerification,
-    make_validation_cases,
-)
 from .world import (
     Regime,
     SwitchingWorld,
@@ -124,105 +67,36 @@ __all__ = [
     "Athena",
     "Config",
     "StepReport",
-    "AthenaAgent",
-    "AgentConfig",
-    "FoundationModel",
-    "CallableFoundation",
-    "Candidate",
-    "ScoredCandidate",
-    "Decision",
-    "OutcomeReport",
-    "StrategyKnowledge",
-    "CheckCommand",
-    "DeveloperTask",
-    "ActionObservation",
-    "CheckResult",
-    "VerificationResult",
-    "AttemptReport",
-    "ApprenticeProcedure",
-    "RuntimeStatus",
-    "ApprenticeConfig",
-    "ApprenticeStore",
-    "RepositoryReasoner",
-    "ScriptedRepositoryReasoner",
-    "OpenRouterRepositoryReasoner",
-    "RepositorySandbox",
-    "ApprenticeRuntime",
-    "DemoFoundation",
-    "OpenAIResponsesFoundation",
-    "OpenAIResponsesToolReasoner",
-    "OpenRouterChatFoundation",
-    "OpenRouterChatToolReasoner",
-    "FoundationError",
-    "FoundationRefusal",
-    "HashingEncoder",
-    "Episode",
-    "EpisodicMemory",
-    "Belief",
-    "BeliefStore",
-    "Program",
-    "ProgramCatalog",
-    "Example",
-    "Experiment",
-    "KnowledgeGap",
-    "VerificationReport",
-    "Skill",
-    "ConsolidationReport",
-    "LearningReport",
-    "SkillRegistry",
-    "NovelTaskLearner",
-    "ToolParameter",
-    "ToolSpec",
-    "ToolGoal",
-    "ToolDecision",
-    "ToolResult",
-    "ToolExperience",
-    "ToolVerification",
-    "ToolRunReport",
-    "ToolEnvironment",
-    "ToolReasoner",
-    "ToolPolicy",
-    "ProcedureStep",
-    "SkillValidation",
-    "ToolSkill",
-    "ToolLearningReport",
-    "ToolSkillRegistry",
-    "OpaqueKVWorld",
-    "DemoToolReasoner",
-    "ToolLearningAgent",
-    "make_validation_cases",
-    "BaselineReport",
-    "OnlineRLS",
     "Precision",
-    "ProgressiveRegistry",
+    "VolatilityTracker",
+    "ContextGate",
+    "GateState",
+    "OnlineRLS",
+    "BaselineReport",
     "ContinualLearner",
     "ContinualConfig",
+    "MultiClassLearner",
     "SharedPlasticity",
     "Experience",
+    "Sample",
     "LearningReport",
+    "related_tasks",
+    "unrelated_tasks",
+    "task_cases",
+    "DERLearner",
+    "PrioritisedLearner",
+    "TimescaleLearner",
+    "LibraryLearner",
+    "EpisodicLearner",
+    "GradientLearner",
+    "Rule",
+    "make_rules",
+    "make_composed_rules",
+    "rule_examples",
+    "ProgressiveRegistry",
     "TransferConfig",
     "TransferReport",
-    "VolatilityTracker",
-    "NeuralExample",
-    "PlasticityConfig",
-    "PlasticityReport",
-    "PlasticSkill",
-    "ProtectedPlasticity",
-    "make_reasoning_cases",
-    "RawObservation",
-    "GroundedExample",
-    "RepresentationConfig",
-    "RepresentationState",
-    "RepresentationReport",
-    "ReasoningOperator",
-    "OperatorReport",
-    "GroundedRepresentationSystem",
-    "make_visual_observations",
-    "make_visual_cases",
-    "EvidenceLevel",
-    "ReadinessGate",
-    "AGIReadinessReport",
-    "assess_agi_readiness",
+    "Example",
     "Regime",
     "SwitchingWorld",
     "shifting_world",
@@ -231,4 +105,4 @@ __all__ = [
     "linear_mse",
     "zero_mse",
 ]
-__version__ = "0.9.0"
+__version__ = "0.10.0"
