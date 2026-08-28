@@ -2017,9 +2017,46 @@ limit, not trade one:
 
 **Correlated attributes.** Mushroom's remaining 7 are the two stalk colours,
 which almost always agree, and values deterministically nested inside
-ring-type. Two attributes that share an alphabet and covary are not two slots
-as far as exclusion can tell, and no amount of data changes that. This one is
-genuine, and it is the next thing to attack.
+ring-type. This one is genuine and is not solved.
+
+But the first description of it here was wrong, and the correction matters more
+than the limit. It said two attributes that share an alphabet and covary are
+not two slots *as far as exclusion can tell*, and that no amount of data
+changes that. **The evidence is in fact present, and one step away:**
+
+| pair | observed | expected | |
+|---|---:|---:|---|
+| `t14_o` vs `t13_w` | 0 | 105.5 | looks like a sibling — this is the error |
+| `t14_o` vs `t13_o` | 192 | 4.5 | **provably a different role** |
+| `t13_o` vs `t13_w` | 0 | 105.5 | **provably the same role** |
+
+Orange-below is in a different role from orange-above; orange-above is in the
+same role as white-above; therefore orange-below differs from white-above —
+deduced, never observed. Same-role is an equivalence relation, so different-role
+is inherited across it, and a pairwise test simply cannot reach that.
+
+So this is a **search** failure, not a signal failure. And the search fails in a
+specific way worth recording: the greedy assigns in frequency order and never
+revisits, so the intruder joins the above-ring group first, and the genuine
+member — which provably co-occurs with the intruder — is then *refused entry to
+its own role* and strands in a group of two, where the refuting evidence has
+nothing left to propagate along. The class needed to make the deduction is the
+class the deduction was supposed to produce.
+
+Four attempts at breaking that circularity, none of which beat the shipped
+method's 15/22:
+
+| approach | mushroom | why it failed |
+|---|---:|---|
+| propagate conflicts through discovered groups | 15/22 | the stranded member's class is wrong, so nothing propagates |
+| soft correlation-clustering objective | 1/22 | dropping all-pairs feasibility lets many weak positives outvote one decisive negative |
+| hard feasibility plus ejection moves | 7/22 | the intruder has strong provable exclusions of its own; ejection destabilises correct groups |
+| conservative scaffold, deduce, then regroup | 1/22 | the scaffold is fragmentary, and closing over it manufactures conflicts that are not there |
+
+The honest state: the information needed is demonstrably in the data, and
+extracting it is a joint assignment problem that greedy search gets wrong and
+that four better searches got wronger. That is a smaller and more tractable
+claim than "the signal is absent", and it is where this stops.
 
 ```
 python3 examples/real_data.py
