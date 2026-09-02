@@ -2220,6 +2220,45 @@ python3 examples/lifelong_agent.py
 ```
 
 
+## Round seventeen: does the gain open up when learning gets expensive?
+
+Round sixteen ended with a prediction: the compounding is small because
+learning a rule from scratch costs about twenty-five questions here, and a
+carried shape still costs about twenty to be believed, so there is almost
+nothing for reuse to save. Where learning from scratch is expensive and
+checking a reused skill stays cheap, the gap should open. That is
+falsifiable, so this tests it — the same agent, the same controls, the same
+curriculum shape, with rules of two, three and four literals and the agent's
+hypothesis space grown to match. Nothing was tuned on the result.
+
+| literals per rule | hypotheses | amnesiac | agent | saving | by seed | solved by shape |
+|---:|---:|---:|---:|---:|---|---:|
+| 2 | 1,433 | 300.7 | 286.7 | **−14.0** (−4.7%) | +7 −14 −35 | 0.39 |
+| 3 | 23,171 | 362.3 | 350.3 | **−12.0** (−3.3%) | +4 −33 −7 | 0.42 |
+| 4 | 265,475 | 396.7 | 369.0 | **−27.7** (−7.0%) | +9 −70 −22 | 0.56 |
+
+**The direction held and the magnitude did not.** The saving roughly doubles
+at the hardest setting, and carried shapes solve more of the problems as the
+space grows — but "dramatic" was the wrong word, and the reason is visible in
+the amnesiac column. The space grew 185×; learning from scratch got only 32%
+dearer. An agent that asks the question its hypotheses disagree on most
+halves the survivors each time, so learning from scratch costs about
+`log₂(space)` questions, and reuse can only save the difference between that
+and a fixed verification. A logarithm opens slowly.
+
+So the refined claim is narrower and better: **reuse pays in proportion to
+how far learning is from logarithmic.** Where the learner can ask, the gain
+is bounded by a logarithm. Where it cannot — examples handed over, chosen by
+no one — learning from scratch is far more expensive per example, and that
+is where a carried shape should be worth the most.
+
+<!-- CHANNEL17 -->
+
+```
+python3 examples/harder_worlds.py
+```
+
+
 ## Scientific position
 
 Predictive processing is an influential computational theory, not a settled
@@ -2311,6 +2350,7 @@ python3 examples/real_data.py              # on data nobody generated for it
 python3 examples/paying_rent.py            # what the structure actually buys
 python3 examples/does_it_scale.py          # where it stops, and why
 python3 examples/lifelong_agent.py         # the loop, end to end, against its controls
+python3 examples/harder_worlds.py          # does the gain open as learning gets expensive
 ```
 
 | path | purpose |
