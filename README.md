@@ -2252,7 +2252,23 @@ is bounded by a logarithm. Where it cannot — examples handed over, chosen by
 no one — learning from scratch is far more expensive per example, and that
 is where a carried shape should be worth the most.
 
-<!-- CHANNEL17 -->
+The same runs, split by channel:
+
+| literals | channel | amnesiac | agent | saving | solved by shape |
+|---:|---|---:|---:|---:|---:|
+| 2 | instruction | 162.7 | 144.0 | **−18.7 (−11.5%)** | 0.39 |
+| 2 | experiment | 138.0 | 142.7 | +4.7 (+3.4%) | 0.39 |
+| 4 | instruction | 185.3 | 161.3 | **−24.0 (−12.9%)** | **0.72** |
+| 4 | experiment | 211.3 | 207.7 | −3.7 (−1.7%) | 0.39 |
+
+**All of the saving is on the instruction channel, at both difficulties.**
+Where the agent can ask, reuse is worth nothing — slightly less than nothing
+at arity 2, because diagnosis is a tax and a good question is already worth
+half the space. Where examples arrive chosen by no one, a carried shape is
+worth 12–13% of the labels, and at the hardest setting it explains
+**72%** of the instruction problems outright. That is the mechanism the
+project was for, shown where it actually operates: experience compounds in
+proportion to how much the learner cannot choose what it sees.
 
 ```
 python3 examples/harder_worlds.py
