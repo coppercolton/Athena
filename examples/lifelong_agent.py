@@ -39,7 +39,7 @@ from athena.worlds import Agreement, Conjunction, Domain, Oracle, balanced, rand
 WATCH = 1500
 TEST = 40
 BUDGET = 60
-SEEDS = 3
+SEEDS = 5
 
 VOCAB = {
     "plumbing": (("water", "oil", "steam", "slurry"), ("pipe", "tank", "hose"), ("pressure", "heat", "sediment", "surge"),
@@ -119,7 +119,8 @@ def run(condition: str, seed: int) -> list:
     records = []
     for p in problems:
         tb, ty = balanced(rng, p.domain, p.rule, TEST)
-        exclude = {tuple(sorted(b)) for b in tb}
+        exclude = frozenset(tuple(sorted(b)) for b in tb)
+        p = Problem(p.domain, p.rule, p.channel, p.budget, exclude)   # the agent may not draw these
         test = (p.domain.encode(tb), ty)
         oracle = Oracle(p.domain, p.rule)
         if p.channel == "instruction":
@@ -156,6 +157,8 @@ def main() -> None:
     paired = [np.mean([a[i].cost - b[i].cost for a, b in zip(results["agent"], results["amnesiac"])]) for i in range(n)]
     print(f"\n  paired cost, agent minus amnesiac, per problem: " + " ".join(f"{p:+.0f}" for p in paired))
     print(f"  total over the curriculum: {np.sum(paired):+.1f} labels/questions ({np.sum(paired) / np.sum([np.mean([r[i].cost for r in results['amnesiac']]) for i in range(n)]):+.1%})")
+    per_seed = [sum(r.cost for r in a) - sum(r.cost for r in b) for a, b in zip(results["agent"], results["amnesiac"])]
+    print(f"  per seed: {' '.join(f'{d:+d}' for d in per_seed)}   (agent minus amnesiac, total cost; negative is better)")
 
     print(f"\n  {'summary':<28}" + "".join(f"{c:>13}" for c in conditions))
     for label, fn in (

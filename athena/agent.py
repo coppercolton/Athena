@@ -64,12 +64,19 @@ from .worlds import Agreement, Conjunction, Domain
 
 @dataclass(frozen=True)
 class Problem:
-    """Something to be learned: a rule over a domain, reachable one of two ways."""
+    """Something to be learned: a rule over a domain, reachable one of two ways.
+
+    ``exclude`` holds the situations the problem will later be scored on. The
+    agent may not draw them while learning -- in the world it would not be
+    able to ask about the future -- and the benchmark passes them so that no
+    held-out situation can be queried, verified on, or paid for.
+    """
 
     domain: Domain
     rule: object
     channel: str  # "instruction" | "experiment"
     budget: int   # labels handed over, or questions allowed
+    exclude: frozenset = frozenset()
 
 
 @dataclass
@@ -116,6 +123,7 @@ class LifelongAgent:
         self.surprise = VolatilityTracker()
         self.records: list[Record] = []
         self._last_candidates = 0
+        self._exclude: frozenset = frozenset()
 
     # ------------------------------------------------------------------
     # watching: the vocabulary comes from co-occurrence, never from the domain
@@ -176,11 +184,18 @@ class LifelongAgent:
         # A carried shape can be impossible in the target -- a dependency may
         # forbid the pair -- and an impossible hypothesis is never eliminated
         # by a question, because it never disagrees with anything by being true.
-        probe = domain.encode(domain.situations(self.rng, 512))
+        probe = domain.encode(self._draw(domain, 512))
         votes = self._votes([h for _, h in out], probe)
         return [c for c, ok in zip(out, votes.any(axis=0)) if ok]
 
     # ------------------------------------------------------------------
+    def _draw(self, domain: Domain, count: int) -> list[list[str]]:
+        """Situations the agent may ask about: never one it will be scored on."""
+        bags = domain.situations(self.rng, count)
+        if not self._exclude:
+            return bags
+        return [b for b in bags if tuple(sorted(b)) not in self._exclude]
+
     @staticmethod
     def _votes(hyps: list[Hypothesis], x: np.ndarray) -> np.ndarray:
         if not hyps:
@@ -191,7 +206,7 @@ class LifelongAgent:
         """Situations some survivor predicts true, so a question can divide them."""
         keep_b, keep_x, keep_v = [], [], []
         for _ in range(8):
-            bags = domain.situations(self.rng, size)
+            bags = self._draw(domain, size)
             x = domain.encode(bags)
             v = self._votes(hyps, x)
             hit = v[:, alive].any(axis=1) if alive.any() else np.zeros(len(x), dtype=bool)
@@ -200,7 +215,7 @@ class LifelongAgent:
             if len(keep_b) >= size:
                 break
         if not keep_b:
-            bags = domain.situations(self.rng, size)
+            bags = self._draw(domain, size)
             x = domain.encode(bags)
             return bags, x, self._votes(hyps, x)
         return keep_b, np.asarray(keep_x), np.asarray(keep_v)
@@ -225,7 +240,7 @@ class LifelongAgent:
             want = min(block, self.verify_size - confirmed) // 2 or 1
             pos, neg = [], []
             for _ in range(16):
-                bags = domain.situations(self.rng, 256)
+                bags = self._draw(domain, 256)
                 x = domain.encode(bags)
                 p = hyp.holds(x)
                 for i in range(len(x)):
@@ -298,7 +313,7 @@ class LifelongAgent:
         while used < budget:
             alive = space.consistent(x, y) & ~dead
             while used < budget and alive.sum() > 1:
-                bags = domain.situations(self.rng, 256)
+                bags = self._draw(domain, 256)
                 px = domain.encode(bags)
                 pv = space.predictions(px)
                 hit = pv[:, alive].any(axis=1)
@@ -392,6 +407,7 @@ class LifelongAgent:
         """One full cycle. ``examples`` (x, y) for instruction; ``test`` (x, y) held out."""
         domain = problem.domain
         index = len(self.records)
+        self._exclude = problem.exclude
         if problem.channel == "experiment":
             verdict, hyp, x, y, used, first_err = self._diagnose_active(domain, oracle, problem.budget)
             if hyp is None:
@@ -425,6 +441,13 @@ class LifelongAgent:
         return float(np.mean([(s.hypothesis.holds(s.test_x).astype(int) == s.test_y).mean() for s in self.skills]))
 
     def forget(self) -> None:
-        """The amnesiac control: no store survives a problem."""
+        """The amnesiac control: no store survives a problem.
+
+        The vocabulary survives on purpose. Roles come from unlabelled
+        watching, which costs nothing and is identical in every condition, so
+        keeping them isolates the one thing this control is for -- whether
+        retained *skills* make later problems cheaper. Removing the
+        vocabulary's value is a different question, and ``shuffled`` asks it.
+        """
         self.skills.clear()
         self.library.clear()

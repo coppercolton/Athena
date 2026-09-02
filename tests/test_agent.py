@@ -156,6 +156,26 @@ def test_backward_transfer_is_exactly_zero():
     assert np.allclose(now, seen)
 
 
+def test_agent_never_draws_a_held_out_situation():
+    """Every situation the agent asks about, verifies on, or pools from must be
+    outside the set it will be scored on. A reviewer found the earlier version
+    could query test situations through the oracle; this pins the fix."""
+    agent, rng = fresh_agent()
+    rule = random_conjunction(rng, A, 2)
+    tb, ty = balanced(rng, A, rule, 40)
+    exclude = frozenset(tuple(sorted(b)) for b in tb)
+    seen = []
+    class Spy:
+        def __init__(self, inner): self.inner = inner
+        def label(self, bags):
+            seen.extend(tuple(sorted(b)) for b in bags)
+            return self.inner.label(bags)
+    for _ in range(3):
+        agent.encounter(Problem(A, random_conjunction(rng, A, 2), "experiment", 60, exclude), Spy(Oracle(A, rule)), test=(A.encode(tb), ty))
+    assert seen, "the spy saw no queries; the test proves nothing"
+    assert not (set(seen) & exclude), "a held-out situation was queried"
+
+
 def test_amnesiac_control_never_recognises_anything():
     agent, rng = fresh_agent()
     rule = random_conjunction(rng, A, 2)
