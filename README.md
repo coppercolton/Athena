@@ -2063,6 +2063,163 @@ python3 examples/real_data.py
 ```
 
 
+## Round sixteen: the loop
+
+Fifteen rounds produced validated pieces — a continual learner, a library
+learner, binding, analogy, role discovery — and never assembled them into the
+thing this repository was for. This round does, on the narrowest problems where
+every step can still be checked, and measures whether the assembled loop gets
+*better at learning* rather than merely bigger.
+
+One agent meets a stream of problems across three domains that share no
+fillers. It has watched each domain unlabelled first, so the roles come from
+co-occurrence (round ten), never from the generator. Each problem is a rule it
+has not seen, arriving through one of two channels: labelled examples handed
+over, or an oracle it may question. For each it must
+
+    identify   whether something retained explains it -- a skill from this
+               domain, or the *shape* of a skill from another, carried across
+               the discovered roles
+    learn      if not: from the examples, or by asking about the situations
+               its surviving hypotheses disagree on
+    solve      on distinct held-out situations it was never allowed to draw
+    retain     the hypothesis, and the sub-expressions it shares with earlier
+               ones (round six)
+    check      every earlier skill, every time
+
+`athena/worlds.py` is the world, `athena/hypotheses.py` the hypothesis space
+and the experimentation loop, `athena/agent.py` the agent, and
+`examples/lifelong_agent.py` the curriculum with its controls.
+
+### Three decisions forced by measurement
+
+**Diagnosis is a test, not a lookup.** The first version compared retained
+candidates against a handful of probes. With six probes and a few hundred
+carried-across candidates, a genuinely new rule was called *transfer*, because
+something always fits by chance — and the founding surprise signal was fooled
+identically, reporting zero error. Sixteen probes did not fix it either: a
+candidate that is a sub-conjunction of the truth agrees with it on about half
+of all random probe sets, because near-miss hypotheses are correlated with the
+truth, not random. So diagnosis is active — the agent asks about the situation
+its candidates disagree on most — and a survivor is believed only after
+predicting a fresh set it was not selected on, half of which it predicts true,
+so that a hypothesis that is never true cannot pass by being false everywhere.
+A hypothesis that *cannot* be exhibited is refused outright: one that could
+not was passing an all-negative check at 0.50 on held-out before that line
+existed.
+
+**Transfer carries a shape, not a rule.** Roles align across domains by
+relational signature exactly as round ten found, but nothing aligns the
+*fillers*: nothing says water is to plumbing what money is to negotiation.
+Zero-label transfer of a concrete rule was 10/20. What survives is which roles
+a rule mentions and how, and the target domain's own examples fix the rest.
+That restricts a search of twenty thousand hypotheses to a few hundred, and it
+is worth about half the labels a new domain costs:
+
+| target-domain labels | transferred shape | from scratch |
+|---:|---:|---:|
+| 4 | **0.814** | 0.667 |
+| 8 | **0.973** | 0.826 |
+| 16 | **1.000** | 0.925 |
+
+**Verification is a tax, and the tax caps the compounding.** The first full
+run showed no compounding at all: the agent's total cost equalled the
+amnesiac's. Diagnosis is paid on every problem, and a *failed* diagnosis costs
+a full verification before learning even starts. Rejecting wrong candidates
+early — verification in blocks, stopping at the first miss, which catches a
+near-miss in its first block about 94% of the time — recovered a gain, but the
+gain is bounded above by what a correct transfer still has to pay to be
+believed. That is not a tuning problem. It is the price of the round-seven
+rule, imagination proposes and observation disposes, applied to the agent's
+own beliefs.
+
+### The result
+
+Three domains sharing no fillers, twelve problems, five seeds. Cost is the
+labels consumed or questions asked before a *verified* hypothesis; held-out
+sets are distinct situations the agent was forbidden to draw.
+
+| | agent | amnesiac | no-transfer | shuffled roles | reversed order |
+|---|---:|---:|---:|---:|---:|
+| total cost over the curriculum | **291.0** | 302.2 | 302.0 | 291.8 | 308.6 |
+| held-out accuracy | 0.975 | 0.975 | 0.975 | **0.869** | 0.980 |
+| solved by carried shape | **0.50** | 0.00 | 0.00 | 0.37 | 0.50 |
+| failed within budget | 0.00 | 0.00 | 0.00 | **0.18** | 0.00 |
+| backward transfer | 0.000 | 0.000 | 0.000 | 0.000 | 0.000 |
+| surprise on recognised problems | **0.00** | — | — | 0.00 | 0.00 |
+| surprise on novel problems | 0.36 | 1.00 | 0.71 | 0.41 | 0.40 |
+
+Paired against the amnesiac, problem by problem, the agent is cheaper by
+**11.2 labels or questions over the curriculum (−3.7%)**, and by seed the
+difference is −2, −66, −7, −14, +33: four of five in the agent's favour, one
+against, and a spread that five seeds cannot make tight. That is the honest
+size of the effect on this curriculum.
+
+What the controls say is sharper than the headline:
+
+*   **Retention alone buys nothing here.** `no-transfer` costs the same as
+    the amnesiac, because the curriculum has almost no exact repeats. The
+    entire gain is carried shapes — half the problems are solved by one.
+*   **The structure has to be right.** With roles shuffled, accuracy falls
+    to 0.87 and a fifth of problems run out of budget: the agreement
+    predicates become meaningless and the space prunes the wrong things.
+    Round thirteen's lesson, again, in the loop.
+*   **Order matters in the direction it should.** Reversed, so that carried
+    shapes arrive before their sources, is the most expensive condition of
+    all — dearer than forgetting everything. Compounding needs experience to
+    precede the problem it helps with.
+*   **Surprise tracks recognition.** The founding signal reads 0.00 whenever
+    a retained or carried hypothesis explains the problem and 0.36 on the
+    novel ones — and 1.00 for the amnesiac, which is surprised by everything.
+    It is reported beside competence; the two agree.
+
+Why the gain is small is a structural fact, not a tuning one. A carried shape
+still costs about 20 questions to be *believed* — elimination among a few
+hundred candidates, then twelve verification labels — against about 25 to
+learn from scratch. The saving per transferred problem is a handful, and half
+of it is spent again on the novel problems, where diagnosis is a tax paid
+before learning begins. The compounding is real and it is capped by the cost
+of not fooling yourself.
+
+### What it does and does not license
+
+It licenses: the pieces compose into one loop that runs the full cycle with
+no labels for the vocabulary, recognises what it has seen, carries shapes
+between domains that share nothing on the surface, learns what it has not
+seen by asking, and never forgets — and the loop is measurably, if modestly,
+cheaper than the same loop with its memory wiped, against controls that each
+change one thing.
+
+It does not license: any claim about scale, perception, or open-ended
+problems. The domains are symbolic and small, the rule families are two, the
+oracle is perfect, and "getting better" here is a single-digit-percent
+reduction in labels over twelve problems. Forgetting is impossible by
+construction because skills are symbols; the forgetting that is real, in the
+neural trunk, was measured in rounds one to five and is not re-litigated here.
+
+### Defects found while building, all fixed and tested
+
+*   a curriculum rule unsatisfiable under the dependency spun the generator
+    forever; rules are now verified satisfiable and sampling fails loudly
+*   a four-role domain has 48 situations, so a 200-example test set was the
+    whole world; examples are now distinct, held-out sets disjoint, domains
+    sized to allow it
+*   a uniform probe pool eliminates almost nothing, because a conjunction is
+    false on most situations; pools are drawn from situations some survivor
+    predicts true
+*   an unverifiable survivor spun the learning loop forever; it is struck out
+*   the curriculum encoded difficulty in position — the order confound the
+    literature warns about; every round now mixes a fresh rule, a carried
+    shape, and an extension
+*   the agent could query a held-out situation through the oracle before
+    being scored on it; every draw now goes through one helper that refuses
+    them, and a spying oracle proves it in a test
+
+```
+python3 examples/lifelong_agent.py
+```
+
+
 ## Scientific position
 
 Predictive processing is an influential computational theory, not a settled
@@ -2122,7 +2279,7 @@ not bundle or train a foundation model.
 
 ## Validation and layout
 
-The regression suite passes **66 / 66** behavioural tests.
+The regression suite passes **78 / 78** behavioural tests.
 
 ```bash
 python3 tests/test_athena.py      # 16 numeric world-model tests
@@ -2131,6 +2288,7 @@ python3 tests/test_plasticity.py  #  8 shared-plasticity and retention tests
 python3 tests/test_transfer.py    #  8 progressive-registry transfer tests
 python3 tests/test_joints.py      # 14 role-discovery, scaling and debris tests
 python3 tests/test_library.py     #  7 hypothesis-space and reuse tests
+python3 tests/test_agent.py       # 12 agent-loop tests, including no-leak and false-transfer
 ```
 
 The rounds, in the order they were measured:
@@ -2152,6 +2310,7 @@ python3 examples/finding_the_joints.py     # the roles are learnable
 python3 examples/real_data.py              # on data nobody generated for it
 python3 examples/paying_rent.py            # what the structure actually buys
 python3 examples/does_it_scale.py          # where it stops, and why
+python3 examples/lifelong_agent.py         # the loop, end to end, against its controls
 ```
 
 | path | purpose |
@@ -2165,6 +2324,9 @@ python3 examples/does_it_scale.py          # where it stops, and why
 | `athena/binding.py` | high-dimensional bind and bundle: structure that survives arithmetic |
 | `athena/analogy.py` | mapping by multiplication, transfer over shared roles |
 | `athena/joints.py` | recovering the role vocabulary from co-occurrence alone |
+| `athena/worlds.py` | role-structured domains, rule families, balanced disjoint examples, an oracle |
+| `athena/hypotheses.py` | the hypothesis space as arrays; experimentation by disagreement |
+| `athena/agent.py` | the lifelong agent: diagnose, learn, solve, retain, carry across, check |
 | `athena/taught.py` | rules, instruction, and the episodic/gradient learners |
 | `athena/plasticity.py` | shared plasticity across skills, promotion and rollback |
 | `athena/transfer.py` | progressive registry: frozen columns and lateral reads |
