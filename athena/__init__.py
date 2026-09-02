@@ -53,6 +53,9 @@ from .priority import PrioritisedLearner
 from .taught import EpisodicLearner, GradientLearner, Rule, make_composed_rules, make_rules, rule_examples
 from .timescales import TimescaleLearner
 from .transfer import Example, ProgressiveRegistry, TransferConfig, TransferReport
+from .agent import LifelongAgent, Problem, Record, Skill
+from .hypotheses import Hypothesis, HypothesisSpace, experiment
+from .worlds import Agreement, Conjunction, Domain, Oracle, balanced, random_agreement, random_conjunction
 from .world import (
     Regime,
     SwitchingWorld,
@@ -64,6 +67,20 @@ from .world import (
 )
 
 __all__ = [
+    "LifelongAgent",
+    "Problem",
+    "Record",
+    "Skill",
+    "Hypothesis",
+    "HypothesisSpace",
+    "experiment",
+    "Domain",
+    "Conjunction",
+    "Agreement",
+    "Oracle",
+    "balanced",
+    "random_conjunction",
+    "random_agreement",
     "Athena",
     "Config",
     "StepReport",
