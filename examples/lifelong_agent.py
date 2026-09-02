@@ -40,6 +40,10 @@ WATCH = 1500
 TEST = 40
 BUDGET = 60
 SEEDS = 5
+ARITY = 2          # literals in a fresh rule; extensions add one
+MAX_LITERALS = 3   # the longest conjunction the agent will entertain
+SHAPE_CAP = 3000
+EXTEND = True      # round three of each cycle extends a base rule by one literal
 
 VOCAB = {
     "plumbing": (("water", "oil", "steam", "slurry"), ("pipe", "tank", "hose"), ("pressure", "heat", "sediment", "surge"),
@@ -75,7 +79,7 @@ def extend(rng, d: Domain, base: Conjunction) -> Conjunction:
         rule = Conjunction(tuple(sorted((*base.literals, (f, True)))))
         if satisfiable(rng, d, rule):
             return rule
-    return random_conjunction(rng, d, 3)
+    return random_conjunction(rng, d, len(base.literals) + 1)
 
 
 def curriculum(rng) -> list[Problem]:
@@ -83,16 +87,16 @@ def curriculum(rng) -> list[Problem]:
     domains as shared shapes, plus fresh ones. Channels alternate."""
     names = list(DOMAINS)
     problems: list[tuple[str, object]] = []
-    base = {n: random_conjunction(rng, DOMAINS[n], 2) for n in names}
+    base = {n: random_conjunction(rng, DOMAINS[n], ARITY) for n in names}
     # Every round mixes a fresh two-literal rule, a carried shape, and a
     # three-literal extension, so position never encodes difficulty -- the
     # order confound the literature warns about, and the first version of
     # this curriculum had.
     for round_ in range(3):
         n0, n1, n2 = names[round_ % 3], names[(round_ + 1) % 3], names[(round_ + 2) % 3]
-        problems.append((n0, base[n0] if round_ == 0 else random_conjunction(rng, DOMAINS[n0], 2)))
+        problems.append((n0, base[n0] if round_ == 0 else random_conjunction(rng, DOMAINS[n0], ARITY)))
         problems.append((n1, carry(base[n0], DOMAINS[n0], DOMAINS[n1])))       # a shape seen elsewhere
-        problems.append((n2, extend(rng, DOMAINS[n2], base[n2])))               # base concept plus one literal
+        problems.append((n2, extend(rng, DOMAINS[n2], base[n2]) if EXTEND else random_conjunction(rng, DOMAINS[n2], ARITY)))
         problems.append((n1, random_agreement(rng, DOMAINS[n1])))
     out = []
     for i, (n, rule) in enumerate(problems):
@@ -102,7 +106,7 @@ def curriculum(rng) -> list[Problem]:
 
 def run(condition: str, seed: int) -> list:
     rng = np.random.default_rng(seed)
-    agent = LifelongAgent(seed, transfer=condition != "no-transfer")
+    agent = LifelongAgent(seed, transfer=condition != "no-transfer", max_literals=MAX_LITERALS, shape_cap=SHAPE_CAP)
     watched = {n: DOMAINS[n].situations(rng, WATCH) for n in DOMAINS}
     for n, d in DOMAINS.items():
         if condition == "shuffled":

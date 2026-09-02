@@ -63,6 +63,19 @@ class HypothesisSpace:
         self.groups = tuple(tuple(int(i) for i in g) for g in groups) if groups is not None else None
         learner = LibraryLearner(features=self.features, groups=self.groups, max_literals=max_literals)
         self.candidates, self.index, self.polarity, self.used = learner._compiled()
+        # A conjunction is satisfied when every one of its literals is. Encode
+        # each hypothesis as a 0/1 column over the 2F possible literals
+        # (feature true, feature false); then "literals satisfied" is one
+        # matrix product with the batch's own literal vector, and the
+        # prediction is that count reaching the hypothesis's length. The
+        # obvious fancy-indexed version materialises rows x hypotheses x
+        # literals as float64 and needs 22 GB at two million hypotheses.
+        h = len(self.candidates)
+        self.membership = np.zeros((2 * self.features, h), dtype=np.float32)
+        for row, literals in enumerate(self.candidates):
+            for feature, want in literals:
+                self.membership[feature + (0 if want else self.features), row] = 1.0
+        self.lengths = self.membership.sum(axis=0)
         self.agreements: list[tuple[int, int]] = []
         if agreements and self.groups is not None:
             for a in range(len(self.groups)):
@@ -72,9 +85,14 @@ class HypothesisSpace:
         self.size = len(self.candidates) + len(self.agreements)
 
     # ------------------------------------------------------------------
-    def predictions(self, x: np.ndarray) -> np.ndarray:
+    def predictions(self, x: np.ndarray, chunk: int = 64) -> np.ndarray:
         """Boolean matrix, one column per hypothesis."""
-        conj = (((x[:, self.index] > 0.5) == self.polarity) | ~self.used).all(axis=2)
+        bits = x > 0.5
+        literal = np.concatenate([bits, ~bits], axis=1).astype(np.float32)   # (rows, 2F)
+        conj = np.empty((len(x), len(self.candidates)), dtype=bool)
+        for start in range(0, len(x), chunk):
+            block = literal[start:start + chunk] @ self.membership            # literals satisfied
+            conj[start:start + chunk] = block >= self.lengths - 0.5
         if not self.agreements:
             return conj
         cols = []
